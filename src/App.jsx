@@ -76,6 +76,31 @@ function returnTripEndAbs(day,job){
   while(ret<end) ret+=1440;
   return ret;
 }
+
+function returnTripStartAbs(day,job){
+  const {start}=jobStartEndAbs(day,job);
+
+  if(job.pool==="PIN-UP") return start;
+
+  const pool=job.pool.toUpperCase();
+  let returnStartTime=null;
+
+  // Return leg start times:
+  // PSC returns on 28 at 20:46
+  // WEN returns on 8 at 20:37
+  // WFH returns on 7 at 22:01
+  if(pool.includes("PSC")) returnStartTime=parseTime("20:46");
+  else if(pool.includes("WEN")) returnStartTime=parseTime("20:37");
+  else if(pool.includes("WFH")) returnStartTime=parseTime("22:01");
+  else return start;
+
+  let returnStart=DAY_INDEX[day]*1440+returnStartTime;
+
+  // Return leg must start after the outbound call.
+  if(returnStart<=start) returnStart+=1440;
+
+  return returnStart;
+}
 function requiredRestMinutes(start,end){ return end-start < 720 ? 480 : 600; }
 function uniqueRegulars(){ return [...new Set(REGULAR_JOBS.map(j=>j.regular))]; }
 function jobsForRegularOnDay(regular,day){ return REGULAR_JOBS.filter(j=>j.regular===regular && j.works.includes(day)); }
@@ -199,7 +224,7 @@ function App(){
     reorderByAvailability(board,DAY_INDEX[day]*1440,availability);
     if(moved.size||todayVac.size) lines.push("");
   }
-  function callNext(board,day,job,start,returnEnd,availability,lines){
+  function callNext(board,day,job,start,returnStart,returnEnd,availability,lines){
     const next=NEXT_DAY[day];
     for(const employee of [...board]){
       const idx=board.findIndex(e=>e.name===employee.name);
@@ -213,7 +238,7 @@ function App(){
         availability[called.name]=returnEnd+1440;
         lines.push(`  ${called.name} works into relief day ${next}; marks up 24h after return tie-up at ${fmtAbs(availability[called.name])}`);
       }else{
-        const rest=requiredRestMinutes(start,returnEnd);
+        const rest=requiredRestMinutes(returnStart,returnEnd);
         availability[called.name]=returnEnd+rest;
         lines.push(`  ${called.name} next available after return/rest (${rest/60}h rest) at ${fmtAbs(availability[called.name])}`);
       }
@@ -234,7 +259,7 @@ function App(){
         if(e)e.holdDownRegular=regular;
       }
     }
-    lines.push("RAILROAD EXTRA BOARD WEEKLY SIMULATION","=".repeat(80),"Auto rest rule: under 12h worked = 8h rest; 12h or more = 10h rest","");
+    lines.push("RAILROAD EXTRA BOARD WEEKLY SIMULATION","=".repeat(80),"Auto rest rule: return leg under 12h = 8h rest; return leg 12h or more = 10h rest","");
     lines.push("Starting board:"); board.forEach((e,i)=>lines.push(`${i+1}. ${e.name}${e.holdDownRegular?` — N/A holding down ${e.holdDownRegular}`:""}`)); lines.push("");
     const vacanciesByDay=Object.fromEntries(DAYS.map(d=>[d,[]]));
     for(const [regular,value] of Object.entries(state.fullWeekVacations)){
@@ -261,14 +286,14 @@ function App(){
         for(const v of jobs){ const {start}=jobStartEndAbs(day,v.job), ret=returnTripEndAbs(day,v.job); lines.push(v.regular==="PIN-UP"?`- PIN-UP ${v.job.train} | ${v.reason} | ON ${fmtAbs(start)} OFF/RETURN ${fmtAbs(ret)}`:`- ${v.job.pool} ${v.job.train} | ${v.regular} off | ${v.reason} | ON ${fmtAbs(start)} RETURN TIE-UP ${fmtAbs(ret)}`); }
         lines.push("","Assignments:");
         for(const v of jobs){
-          const {start}=jobStartEndAbs(day,v.job), ret=returnTripEndAbs(day,v.job);
+          const {start}=jobStartEndAbs(day,v.job), ret=returnTripEndAbs(day,v.job), returnStart=returnTripStartAbs(day,v.job);
           if(v.holdDown!=="None"){
             const text=`${v.holdDown} works ${v.job.pool} ${v.job.train} holding down ${v.regular} | ON ${fmtAbs(start)} RETURN TIE-UP ${fmtAbs(ret)}`;
             lines.push(`- ${text}`); dailySummary[day].push(text); employeeSummary[v.holdDown]=[...(employeeSummary[v.holdDown]||[]),`${day.slice(0,3)} ${v.job.pool} ${v.job.train}`];
             workedJobs.push({id:`${day}-${v.holdDown}-${workedJobs.length}`,employee:v.holdDown,day,pool:v.job.pool,train:v.job.train,label:`${v.holdDown} HOLD-DOWN for ${v.regular} — ${day.slice(0,3)} ${v.job.pool} ${v.job.train}`,plannedReturn:fmtAbs(ret),actualReturn:fmtAbs(ret)});
             continue;
           }
-          const called=callNext(board,day,v.job,start,ret,availability,lines);
+          const called=callNext(board,day,v.job,start,returnStart,ret,availability,lines);
           let text;
           if(!called) text=v.regular==="PIN-UP"?`NO AVAILABLE EXTRA BOARD EMPLOYEE for ${v.job.train} pin-up`:`NO AVAILABLE EXTRA BOARD EMPLOYEE for ${v.job.pool} ${v.job.train} covering ${v.regular}`;
           else if(v.regular==="PIN-UP"){ text=`${called.name} works pin-up ${v.job.train} | ON ${fmtAbs(start)} OFF ${fmtAbs(ret)}`; employeeSummary[called.name]=[...(employeeSummary[called.name]||[]),`${day.slice(0,3)} PIN-UP ${v.job.train}`]; workedJobs.push({id:`${day}-${called.name}-PIN-${workedJobs.length}`,employee:called.name,day,pool:"PIN-UP",train:v.job.train,label:`${called.name} ${day.slice(0,3)} PIN-UP ${v.job.train}`,plannedReturn:fmtAbs(ret),actualReturn:fmtAbs(ret)}); }

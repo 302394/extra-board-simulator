@@ -18,3 +18,8 @@ Adds:
 ## v6 note
 
 Hold-down days are selected with day-of-week buttons. Leave all unchecked to use the regular's normal work days.
+
+
+## v7 note
+
+Rest is now calculated from the return leg start time to return tie-up, not from the original outbound call time.
