@@ -8,7 +8,7 @@ const DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sun
 const DAY_INDEX = Object.fromEntries(DAYS.map((d,i)=>[d,i]));
 const NEXT_DAY = Object.fromEntries(DAYS.map((d,i)=>[d,DAYS[(i+1)%7]]));
 const PREV_DAY = Object.fromEntries(DAYS.map((d,i)=>[d,DAYS[(i+6)%7]]));
-const STORAGE_KEY = "extra-board-simulator-web-v11-turn-model";
+const STORAGE_KEY = "extra-board-simulator-web-v12-board-replay-beta";
 
 const EXTRA_START = [
   { name:"Dave", reliefDay:"Monday", markupTime:"00:01" },
@@ -41,6 +41,8 @@ const defaultState = {
   singleRegularVacancies:[],
   pinups:[],
   extraVacations:[],
+  blockTraining:[],
+  doubleOuts:[],
 };
 
 function parseTime(text){
@@ -61,6 +63,19 @@ function parseAbs(text){
   const [day,time]=String(text||"").trim().split(/\s+/);
   if(!(day in DAY_INDEX)) throw new Error("Use format like Friday 01:07");
   return DAY_INDEX[day]*1440+parseTime(time);
+}
+
+function eventIdFor(day, job, regular){
+  return `${day}|${regular}|${job.pool}|${job.turn || job.train}`;
+}
+
+function parseActualReturnForJob(job,text){
+  // Actual tie-up fields are attached to the job that created them.
+  // This keeps Sunday jobs that tie up Monday from sorting at the top of the week.
+  let abs=parseAbs(text);
+  const anchor=job.startAbs ?? 0;
+  while(abs<=anchor) abs+=7*1440;
+  return abs;
 }
 
 function jobStartEndAbs(day,job){
@@ -89,6 +104,12 @@ function returnTripEndAbs(day,job){
 function requiredRestMinutes(start,end){ return end-start < 720 ? 480 : 600; }
 
 function uniqueRegulars(){ return [...new Set(REGULAR_JOBS.map(j=>j.regular))]; }
+function allPeople(){ return [...uniqueRegulars(), ...EXTRA_START.map(e=>e.name)]; }
+function inclusiveDays(startDay,endDay){
+  const out=[]; let i=DAY_INDEX[startDay], end=DAY_INDEX[endDay];
+  for(let safety=0;safety<8;safety++){ out.push(DAYS[i%7]); if((i%7)===end) break; i++; }
+  return out;
+}
 function jobsForRegularOnDay(regular,day){ return REGULAR_JOBS.filter(j=>j.regular===regular && j.works.includes(day)); }
 function allWorkingDaysForRegular(regular){
   const set=new Set();
@@ -119,6 +140,7 @@ function App(){
   const [result,setResult]=useState("");
   const [actualJobs,setActualJobs]=useState([]);
   const [actualResult,setActualResult]=useState("");
+  const [summaryMode,setSummaryMode]=useState("Planned");
   const [summaryFontSize,setSummaryFontSize]=useState(14);
   const [summaryFullscreen,setSummaryFullscreen]=useState(false);
   const [holdDaySelection,setHoldDaySelection]=useState([]);
@@ -127,9 +149,40 @@ function App(){
 
   const regulars=useMemo(uniqueRegulars,[]);
   const extras=EXTRA_START.map(e=>e.name);
+  const people=useMemo(allPeople,[]);
   const update=p=>setState(s=>({...s,...p}));
 
   function isExtraVacation(name,day){ return state.extraVacations.some(v=>v.name===name&&v.day===day); }
+
+  function blockIntervalsFor(name){
+    return state.blockTraining.filter(b=>b.employee===name).map(b=>{
+      const start=DAY_INDEX[b.startDay]*1440+parseTime(b.startTime||"08:00");
+      let markup=DAY_INDEX[b.markupDay]*1440+parseTime(b.markupTime||"00:01");
+      while(markup<=start) markup+=7*1440;
+      return {...b,start,markup,rested:markup+480};
+    });
+  }
+
+  function blockRestedTimeAbs(name,abs){
+    // Block training still needs 8 hours rest before that person can work again.
+    const hit=blockIntervalsFor(name).find(b=>abs>=b.start && abs<b.rested);
+    return hit ? hit.rested : null;
+  }
+
+  function blockStartConflict(name,returnEnd){
+    // A person also needs 8 hours rest before block training starts.
+    // If a job return tie-up would leave less than 8h before block, they should not take that job.
+    const hit=blockIntervalsFor(name).find(b=>returnEnd<=b.start && returnEnd+480>b.start);
+    return hit || null;
+  }
+
+  function blockMarkupForDay(name,day){
+    const dayStart=DAY_INDEX[day]*1440, dayEnd=dayStart+1440;
+    const hits=blockIntervalsFor(name).filter(b=>b.markup>=dayStart && b.markup<dayEnd);
+    if(!hits.length) return null;
+    return Math.min(...hits.map(b=>b.markup));
+  }
+
   function moveToBottom(board,name){
     const i=board.findIndex(e=>e.name===name);
     if(i<0)return false;
@@ -146,15 +199,17 @@ function App(){
     });
   }
   function boardSections(board,day,current,availability){
-    const boardRows=[], relief=[], vacation=[], holdDown=[];
+    const boardRows=[], relief=[], vacation=[], holdDown=[], block=[];
     for(const e of board){
       const until=availability[e.name]||0;
+      const blockRested=blockRestedTimeAbs(e.name,current);
       if(e.holdDownRegular){ holdDown.push(`${e.name} — holding down ${e.holdDownRegular}`); continue; }
+      if(blockRested!==null){ block.push(`${e.name} — block training/rest; available ${fmtAbs(blockRested)}`); continue; }
       if(isExtraVacation(e.name,day)){ vacation.push(`${e.name} — vacation; marks up ${NEXT_DAY[day]} 00:01`); continue; }
       if(e.reliefDay===day){ relief.push(`${e.name} — relief day; normal markup ${NEXT_DAY[day]} ${e.markupTime}`); continue; }
       boardRows.push(until>current ? `${e.name} — available ${fmtAbs(until)}` : e.name);
     }
-    return {boardRows,relief,vacation,holdDown};
+    return {boardRows,relief,vacation,block,holdDown};
   }
   function appendBoardSections(lines,board,day,current,availability,label="Ending Board Order"){
     const s=boardSections(board,day,current,availability);
@@ -162,6 +217,7 @@ function App(){
     if(s.boardRows.length) s.boardRows.forEach((n,i)=>lines.push(`${i+1}. ${n}`)); else lines.push("- None on board");
     if(s.relief.length){ lines.push(""); lines.push("Relief:"); s.relief.forEach(x=>lines.push(`- ${x}`)); }
     if(s.vacation.length){ lines.push(""); lines.push("Vacation:"); s.vacation.forEach(x=>lines.push(`- ${x}`)); }
+    if(s.block.length){ lines.push(""); lines.push("Block Training:"); s.block.forEach(x=>lines.push(`- ${x}`)); }
     if(s.holdDown.length){ lines.push(""); lines.push("Hold-Down / N/A:"); s.holdDown.forEach(x=>lines.push(`- ${x}`)); }
   }
 
@@ -181,6 +237,18 @@ function App(){
     }
 
     for(const e of [...board]){
+      const bm=blockMarkupForDay(e.name,day);
+      if(bm!==null && !moved.has(e.name)){
+        if(moveToBottom(board,e.name)){
+          const rested=bm+480;
+          moved.add(e.name);
+          availability[e.name]=Math.max(availability[e.name]||0,rested);
+          lines.push(`  markup ${e.name}: block training ended ${fmtAbs(bm)}; available after 8h rest at ${fmtAbs(rested)}; moved to bottom`);
+        }
+      }
+    }
+
+    for(const e of [...board]){
       if(e.reliefDay===prev && !moved.has(e.name)){
         if(todayVac.has(e.name)){ lines.push(`  hold ${e.name}: relief ended ${day} ${e.markupTime}, but vacation today; not marking up until ${NEXT_DAY[day]} 00:01`); continue; }
         if(moveToBottom(board,e.name)){
@@ -196,19 +264,24 @@ function App(){
 
   function callNext(board,day,job,start,returnStart,returnEnd,availability,lines){
     const next=NEXT_DAY[day];
+    const skipReasons=[];
 
     for(const employee of [...board]){
       const idx=board.findIndex(e=>e.name===employee.name);
-      if(employee.holdDownRegular){ lines.push(`  skip ${employee.name}: N/A holding down ${employee.holdDownRegular}`); continue; }
-      if(employee.reliefDay===day && !state.workRelief[employee.name]){ lines.push(`  skip ${employee.name}: job starts on relief day and Work Relief is not checked`); continue; }
-      if(isExtraVacation(employee.name,day)){ lines.push(`  skip ${employee.name}: vacation day`); continue; }
-      if(returnEnd>DAY_INDEX[next]*1440 && isExtraVacation(employee.name,next)){ lines.push(`  skip ${employee.name}: trip works into ${next}, but ${employee.name} has vacation`); continue; }
-      if(start<(availability[employee.name]||0)){ lines.push(`  skip ${employee.name}: not available until ${fmtAbs(availability[employee.name])}`); continue; }
+      if(employee.holdDownRegular){ const r=`${employee.name}: N/A holding down ${employee.holdDownRegular}`; lines.push(`  skip ${r}`); skipReasons.push(r); continue; }
+      const blockRested=blockRestedTimeAbs(employee.name,start);
+      if(blockRested!==null){ const r=`${employee.name}: block training/rest until ${fmtAbs(blockRested)}`; lines.push(`  skip ${r}`); skipReasons.push(r); continue; }
+      if(employee.reliefDay===day && !state.workRelief[employee.name]){ const r=`${employee.name}: job starts on relief day and Work Relief is not checked`; lines.push(`  skip ${r}`); skipReasons.push(r); continue; }
+      if(isExtraVacation(employee.name,day)){ const r=`${employee.name}: vacation day`; lines.push(`  skip ${r}`); skipReasons.push(r); continue; }
+      if(returnEnd>DAY_INDEX[next]*1440 && isExtraVacation(employee.name,next)){ const r=`${employee.name}: trip works into ${next}, but ${employee.name} has vacation`; lines.push(`  skip ${r}`); skipReasons.push(r); continue; }
+      const blockStartHit=blockStartConflict(employee.name,returnEnd);
+      if(blockStartHit){ const r=`${employee.name}: would not have 8h rest before block starts ${fmtAbs(blockStartHit.start)}`; lines.push(`  skip ${r}`); skipReasons.push(r); continue; }
+      if(start<(availability[employee.name]||0)){ const r=`${employee.name}: not available until ${fmtAbs(availability[employee.name])}`; lines.push(`  skip ${r}`); skipReasons.push(r); continue; }
 
       const [called]=board.splice(idx,1);
       board.push(called);
 
-      if(returnEnd>DAY_INDEX[next]*1440 && called.reliefDay===next){
+      if(returnEnd>DAY_INDEX[next]*1440 && called.reliefDay===next && !state.workRelief[called.name]){
         availability[called.name]=returnEnd+1440;
         lines.push(`  ${called.name} works into relief day ${next}; marks up 24h after return tie-up at ${fmtAbs(availability[called.name])}`);
       }else{
@@ -216,12 +289,27 @@ function App(){
         availability[called.name]=returnEnd+rest;
         lines.push(`  ${called.name} next available after return/rest (${rest/60}h rest) at ${fmtAbs(availability[called.name])}`);
       }
-      return called;
+      return {called,double:false,skipReasons};
     }
-    return null;
+
+    const turn=turnName(job);
+    const override=state.doubleOuts.find(d=>d.day===day && (d.turn==="Any" || d.turn===turn));
+    if(override){
+      const employee=board.find(e=>e.name===override.employee) || EXTRA_START.find(e=>e.name===override.employee);
+      if(employee){
+        moveToBottom(board,employee.name);
+        const availableAt=availability[employee.name]||0;
+        const conflict=start<availableAt ? `Conflict: ${employee.name} available ${fmtAbs(availableAt)}, job starts ${fmtAbs(start)}.` : "Manual override used.";
+        lines.push(`  DOUBLE-OUT / REST OVERRIDE: ${employee.name} forced onto ${turn}. ${conflict}`);
+        const rest=requiredRestMinutes(returnStart,returnEnd);
+        availability[employee.name]=returnEnd+rest;
+        return {called:employee,double:true,skipReasons};
+      }
+    }
+    return {called:null,double:false,skipReasons};
   }
 
-  function runSimulation(){
+  function buildSimulation(actualOverrides={}, adjusted=false){
     const lines=[], employeeSummary={}, dailySummary=Object.fromEntries(DAYS.map(d=>[d,[]])), availability={}, workedJobs=[];
     const board=state.boardOrder.filter(n=>n!=="N/A").map(name=>{
       const base=EXTRA_START.find(e=>e.name===name);
@@ -236,7 +324,7 @@ function App(){
       }
     }
 
-    lines.push("RAILROAD EXTRA BOARD WEEKLY SIMULATION","=".repeat(80),"Jobs are modeled as complete turns: outbound plus return trip home.","Auto rest rule: return leg under 12h = 8h rest; return leg 12h or more = 10h rest","");
+    lines.push(adjusted ? "ACTUAL BOARD REPLAY / ADJUSTED SIMULATION" : "RAILROAD EXTRA BOARD WEEKLY SIMULATION","=".repeat(80),"Jobs are modeled as complete turns: outbound plus return trip home.","Auto rest rule: return leg under 12h = 8h rest; return leg 12h or more = 10h rest", adjusted ? "Edited actual return tie-ups override later board calculations, relief 24-hour markups, and later job eligibility." : "");
     lines.push("Starting board:");
     board.forEach((e,i)=>lines.push(`${i+1}. ${e.name}${e.holdDownRegular?` — N/A holding down ${e.holdDownRegular}`:""}`));
     lines.push("");
@@ -258,10 +346,35 @@ function App(){
       }
     }
 
+    for(const b of state.blockTraining.filter(x=>regulars.includes(x.employee))){
+      // Check the whole week because a late block-training markup can make a later regular job illegal
+      // even if the selected block day range has technically ended.
+      for(const day of DAYS){
+        for(const job of jobsForRegularOnDay(b.employee,day)){
+          const {start}=jobStartEndAbs(day,job);
+          const rested=blockRestedTimeAbs(b.employee,start);
+          if(rested===null) continue;
+
+          const exists=vacanciesByDay[day].some(v=>v.regular===b.employee && v.job.pool===job.pool && v.job.turn===job.turn);
+          if(!exists){
+            vacanciesByDay[day].push({
+              day,
+              regular:b.employee,
+              job,
+              reason:`Block Training — available after 8h rest ${fmtAbs(rested)}${b.notes?` — ${b.notes}`:""}`,
+              holdDown:"None"
+            });
+          }
+        }
+      }
+    }
+
     for(const p of state.pinups){
       const job={regular:"PIN-UP",pool:"PIN-UP",turn:p.label,train:p.label,works:[p.day],onDuty:p.onDuty,offDuty:p.offDuty};
       vacanciesByDay[p.day].push({day:p.day,regular:"PIN-UP",job,reason:"Pin-up / extra-board job",holdDown:"None"});
     }
+
+    for(const day of DAYS){ vacanciesByDay[day].sort((a,b)=>jobStartEndAbs(day,a.job).start-jobStartEndAbs(day,b.job).start); }
 
     for(const day of DAYS){
       lines.push("=".repeat(80),day.toUpperCase(),"=".repeat(80));
@@ -274,7 +387,10 @@ function App(){
       else{
         lines.push("Open jobs:");
         for(const v of jobs){
-          const {start}=jobStartEndAbs(day,v.job), retStart=returnTripStartAbs(day,v.job), ret=returnTripEndAbs(day,v.job);
+          const {start}=jobStartEndAbs(day,v.job), retStart=returnTripStartAbs(day,v.job);
+          const id=eventIdFor(day,v.job,v.regular);
+          const plannedRet=returnTripEndAbs(day,v.job);
+          const ret=actualOverrides[id] ?? plannedRet;
           if(v.regular==="PIN-UP"){
             lines.push(`- PIN-UP ${v.job.train} | ${v.reason} | ON ${fmtAbs(start)} OFF/RETURN ${fmtAbs(ret)}`);
           }else{
@@ -284,46 +400,81 @@ function App(){
 
         lines.push("","Assignments:");
         for(const v of jobs){
-          const {start}=jobStartEndAbs(day,v.job), ret=returnTripEndAbs(day,v.job), returnStart=returnTripStartAbs(day,v.job);
+          const {start}=jobStartEndAbs(day,v.job), returnStart=returnTripStartAbs(day,v.job);
+          const id=eventIdFor(day,v.job,v.regular);
+          const plannedRet=returnTripEndAbs(day,v.job);
+          const ret=actualOverrides[id] ?? plannedRet;
 
           if(v.holdDown!=="None"){
-            const text=`${v.holdDown} works ${turnName(v.job)} turn holding down ${v.regular} | OUTBOUND ON ${fmtAbs(start)} RETURN TIE-UP ${fmtAbs(ret)}`;
+            const holdBlockConflict=blockStartConflict(v.holdDown,ret);
+            const text=`${v.holdDown} works ${turnName(v.job)} turn holding down ${v.regular} | OUTBOUND ON ${fmtAbs(start)} RETURN TIE-UP ${fmtAbs(ret)}${holdBlockConflict?` | BLOCK REST CONFLICT: block starts ${fmtAbs(holdBlockConflict.start)}`:""}`;
             lines.push(`- ${text}`);
+            if(holdBlockConflict) lines.push(`  WARNING: ${v.holdDown} would not have 8h rest before block starts ${fmtAbs(holdBlockConflict.start)}.`);
             dailySummary[day].push(text);
             employeeSummary[v.holdDown]=[...(employeeSummary[v.holdDown]||[]),`${day.slice(0,3)} ${turnName(v.job)}`];
             workedJobs.push({
-              id:`${day}-${v.holdDown}-${workedJobs.length}`,
+              id,
               employee:v.holdDown, day, pool:v.job.pool, train:v.job.turn,
+              status:"ASSIGNED",
+              reason:"",
+              startAbs:start, plannedReturnAbs:plannedRet, actualReturnAbs:ret,
               label:actualTieUpLabel(v.holdDown,day,v.job,v.regular,true),
-              plannedReturn:fmtAbs(ret), actualReturn:fmtAbs(ret)
+              plannedReturn:fmtAbs(plannedRet), actualReturn:fmtAbs(ret)
             });
             continue;
           }
 
-          const called=callNext(board,day,v.job,start,returnStart,ret,availability,lines);
+          const callResult=callNext(board,day,v.job,start,returnStart,ret,availability,lines);
+          const called=callResult.called;
+          const isDouble=callResult.double;
           let text;
 
           if(!called){
             text=v.regular==="PIN-UP"
-              ? `NO AVAILABLE EXTRA BOARD EMPLOYEE for ${v.job.train} pin-up`
-              : `NO AVAILABLE EXTRA BOARD EMPLOYEE for ${turnName(v.job)} covering ${v.regular}`;
+              ? `UNFILLED — no rested/available extra-board employee for ${v.job.train} pin-up`
+              : `UNFILLED — no rested/available extra-board employee for ${turnName(v.job)} covering ${v.regular}`;
+            if(callResult.skipReasons?.length){ lines.push("  Reasons:"); callResult.skipReasons.forEach(r=>lines.push(`   - ${r}`)); }
+
+            workedJobs.push({
+              id,
+              employee:"UNFILLED",
+              day,
+              pool:v.job.pool,
+              train:v.job.turn || v.job.train,
+              status:"UNFILLED",
+              reason:callResult.skipReasons?.join("; ") || "no rested/available extra-board employee",
+              startAbs:start,
+              plannedReturnAbs:plannedRet,
+              actualReturnAbs:ret,
+              label:v.regular==="PIN-UP"
+                ? `UNFILLED ${day.slice(0,3)} PIN-UP ${v.job.train}`
+                : `UNFILLED ${day.slice(0,3)} ${turnName(v.job)} for ${v.regular}`,
+              plannedReturn:fmtAbs(plannedRet),
+              actualReturn:fmtAbs(ret)
+            });
           }else if(v.regular==="PIN-UP"){
-            text=`${called.name} works pin-up ${v.job.train} | ON ${fmtAbs(start)} OFF ${fmtAbs(ret)}`;
+            text=`${called.name}${isDouble?" DOUBLE-OUT / REST OVERRIDE":""} works pin-up ${v.job.train} | ON ${fmtAbs(start)} OFF ${fmtAbs(ret)}`;
             employeeSummary[called.name]=[...(employeeSummary[called.name]||[]),`${day.slice(0,3)} PIN-UP ${v.job.train}`];
             workedJobs.push({
-              id:`${day}-${called.name}-PIN-${workedJobs.length}`,
+              id,
               employee:called.name, day, pool:"PIN-UP", train:v.job.train,
-              label:actualTieUpLabel(called.name,day,v.job),
-              plannedReturn:fmtAbs(ret), actualReturn:fmtAbs(ret)
+              status:isDouble ? "DOUBLE-OUT" : "ASSIGNED",
+              reason:isDouble ? `REST OVERRIDE: forced assignment; job starts ${fmtAbs(start)}` : "",
+              startAbs:start, plannedReturnAbs:plannedRet, actualReturnAbs:ret,
+              label:isDouble ? `${called.name} DOUBLE-OUT ${day.slice(0,3)} PIN-UP ${v.job.train}` : actualTieUpLabel(called.name,day,v.job),
+              plannedReturn:fmtAbs(plannedRet), actualReturn:fmtAbs(ret)
             });
           }else{
-            text=`${called.name} works ${turnName(v.job)} turn for ${v.regular} | OUTBOUND ON ${fmtAbs(start)} RETURN TIE-UP ${fmtAbs(ret)}`;
+            text=`${called.name}${isDouble?" DOUBLE-OUT / REST OVERRIDE":""} works ${turnName(v.job)} turn for ${v.regular} | OUTBOUND ON ${fmtAbs(start)} RETURN TIE-UP ${fmtAbs(ret)}`;
             employeeSummary[called.name]=[...(employeeSummary[called.name]||[]),`${day.slice(0,3)} ${turnName(v.job)}`];
             workedJobs.push({
-              id:`${day}-${called.name}-${workedJobs.length}`,
+              id,
               employee:called.name, day, pool:v.job.pool, train:v.job.turn,
-              label:actualTieUpLabel(called.name,day,v.job,v.regular,false),
-              plannedReturn:fmtAbs(ret), actualReturn:fmtAbs(ret)
+              status:isDouble ? "DOUBLE-OUT" : "ASSIGNED",
+              reason:isDouble ? `REST OVERRIDE: forced assignment; job starts ${fmtAbs(start)}` : "",
+              startAbs:start, plannedReturnAbs:plannedRet, actualReturnAbs:ret,
+              label:isDouble ? `${called.name} DOUBLE-OUT ${day.slice(0,3)} ${turnName(v.job)} for ${v.regular}` : actualTieUpLabel(called.name,day,v.job,v.regular,false),
+              plannedReturn:fmtAbs(plannedRet), actualReturn:fmtAbs(ret)
             });
           }
 
@@ -346,27 +497,45 @@ function App(){
       lines.push("");
     }
 
-    setResult(lines.join("\n"));
-    setActualJobs(workedJobs);
+    return { text: lines.join("\n"), workedJobs };
+  }
+
+  function runSimulation(){
+    const out=buildSimulation();
+    setResult(out.text);
+    setActualJobs(out.workedJobs);
     setActualResult("");
+    setSummaryMode("Planned");
   }
 
   function recalcActualSummary(){
     if(!actualJobs.length){ alert("Run the planned simulation first."); return; }
     try{
-      const sorted=[...actualJobs].sort((a,b)=>parseAbs(a.actualReturn)-parseAbs(b.actualReturn));
-      const lines=["ACTUAL / ADJUSTED RETURN TIE-UP SUMMARY","=".repeat(80),"Based on edited actual return tie-up times.","","Edited Return Tie-Up Order:"];
-      sorted.forEach((j,i)=>lines.push(`${i+1}. ${j.label} — actual return tie-up ${j.actualReturn}`));
-      lines.push("","Employee Actual Work:");
-      const byEmp={};
-      sorted.forEach(j=>byEmp[j.employee]=[...(byEmp[j.employee]||[]),`${j.label} tie-up ${j.actualReturn}`]);
-      [...regulars,...extras].forEach(name=>lines.push(`${name}: ${(byEmp[name]||["no adjusted assignments"]).join(", ")}`));
-      setActualResult(lines.join("\n"));
+      const overrides={};
+      for(const j of actualJobs){
+        overrides[j.id]=parseActualReturnForJob(j,j.actualReturn);
+      }
+
+      const out=buildSimulation(overrides,true);
+      setResult(out.text);
+      setActualResult("");
+      setSummaryMode("Actual / Adjusted Board Replay");
+
+      // Rebuild cards from the adjusted replay, then sort by true absolute return time.
+      // This keeps Sunday jobs tying up Monday at the end of the week instead of the top.
+      const adjustedCards=out.workedJobs
+        .map(j=>({
+          ...j,
+          actualReturn:fmtAbs(j.actualReturnAbs ?? overrides[j.id] ?? j.plannedReturnAbs),
+        }))
+        .sort((a,b)=>(a.actualReturnAbs ?? parseActualReturnForJob(a,a.actualReturn))-(b.actualReturnAbs ?? parseActualReturnForJob(b,b.actualReturn)));
+
+      setActualJobs(adjustedCards);
     }catch(e){ alert(e.message); }
   }
 
   function downloadSummary(){
-    const combined=[result||"Run the simulation first.",actualResult?`\n\n${actualResult}`:""].join("");
+    const combined=result||"Run the simulation first.";
     const blob=new Blob([combined],{type:"text/plain"});
     const a=document.createElement("a");
     a.href=URL.createObjectURL(blob);
@@ -381,6 +550,7 @@ function App(){
     setResult("");
     setActualJobs([]);
     setActualResult("");
+    setSummaryMode("Planned");
   }
 
   function addHoldDown(){
@@ -410,6 +580,24 @@ function App(){
     if(state.extraVacations.some(v=>v.day===day&&v.name===name)){alert(`${name} is already marked off ${day}`);return;}
     update({extraVacations:[...state.extraVacations,{day,name}]});
   }
+  function addBlockTraining(){
+    const employee=document.getElementById("blockEmployee").value;
+    const startDay=document.getElementById("blockStartDay").value;
+    const startTime=document.getElementById("blockStartTime").value||"08:00";
+    const endDay=document.getElementById("blockEndDay").value;
+    const markupDay=document.getElementById("blockMarkupDay").value;
+    const markupTime=document.getElementById("blockMarkupTime").value||"16:00";
+    const notes=document.getElementById("blockNotes").value||"";
+    try{parseTime(startTime);parseTime(markupTime);}catch{alert("Bad block start or markup time.");return;}
+    update({blockTraining:[...state.blockTraining,{employee,startDay,startTime,endDay,markupDay,markupTime,notes}]});
+  }
+  function addDoubleOut(){
+    const employee=document.getElementById("doubleEmployee").value;
+    const day=document.getElementById("doubleDay").value;
+    const turn=document.getElementById("doubleTurn").value;
+    update({doubleOuts:[...state.doubleOuts,{employee,day,turn}]});
+  }
+
   function toggleHoldDay(day){
     setHoldDaySelection(current => current.includes(day) ? current.filter(d=>d!==day) : DAYS.filter(d=>[...current,day].includes(d)));
   }
@@ -489,33 +677,58 @@ function App(){
           <button onClick={addExtraVacation}>Add Extra Vacation</button>
           <List items={state.extraVacations.map(v=>`${v.day} → ${v.name}`)} onRemove={idx=>update({extraVacations:state.extraVacations.filter((_,i)=>i!==idx)})}/>
         </div>
+
+        <div className="subcard">
+          <h3>Block Training</h3><small>Uses 8h rest before block start and 8h rest after block markup.</small>
+          <label>Employee</label><select id="blockEmployee">{people.map(x=><option key={x}>{x}</option>)}</select>
+          <label>Start day</label><select id="blockStartDay">{DAYS.map(d=><option key={d}>{d}</option>)}</select>
+          <label>Start time</label><input id="blockStartTime" defaultValue="08:00"/>
+          <label>End day</label><select id="blockEndDay">{DAYS.map(d=><option key={d}>{d}</option>)}</select>
+          <label>Markup day</label><select id="blockMarkupDay">{DAYS.map(d=><option key={d}>{d}</option>)}</select>
+          <label>Markup time</label><input id="blockMarkupTime" defaultValue="16:00"/>
+          <label>Location / notes</label><input id="blockNotes" placeholder="Seattle, PDX, annual block, etc."/>
+          <button onClick={addBlockTraining}>Add Block Training</button>
+          <List items={state.blockTraining.map(b=>`${b.employee}: ${b.startDay} ${b.startTime||"08:00"}-${b.endDay}, markup ${b.markupDay} ${b.markupTime}${b.notes?` (${b.notes})`:""}`)} onRemove={idx=>update({blockTraining:state.blockTraining.filter((_,i)=>i!==idx)})}/>
+        </div>
+
+        <div className="subcard">
+          <h3>Manual Double-Out / Rest Override</h3>
+          <label>Employee</label><select id="doubleEmployee">{extras.map(x=><option key={x}>{x}</option>)}</select>
+          <label>Day</label><select id="doubleDay">{DAYS.map(d=><option key={d}>{d}</option>)}</select>
+          <label>Turn</label><select id="doubleTurn">{["Any","PSC 27/28","WEN 7/8","WEN Relief 7/8","WFH 8/7","WFH Relief 8/7","PSC Relief 27/28","PIN-UP Yard Switching"].map(x=><option key={x}>{x}</option>)}</select>
+          <button onClick={addDoubleOut}>Add Double-Out Override</button>
+          <List items={state.doubleOuts.map(d=>`${d.employee} DOUBLE-OUT on ${d.day}: ${d.turn}`)} onRemove={idx=>update({doubleOuts:state.doubleOuts.filter((_,i)=>i!==idx)})}/>
+        </div>
       </section>
 
       <section className="card results">
         <div className="mobileActionRow">{actionButtons("bottomActions")}</div>
 
         <h2>Actual Return Tie-Up Adjustments</h2>
-        <p className="empty">Run planned simulation first, then edit actual return tie-up times if return trips arrive out of order.</p>
-        {actualJobs.length?<div className="actualList">{actualJobs.map((job,idx)=><div className="actualRow" key={job.id}>
-          <label>{job.label}</label>
+        <p className="empty">Run planned simulation first, then edit actual return tie-up times. UNFILLED jobs stay visible here. Add a Manual Double-Out / Rest Override, then press Recalculate Actual Board to force a job and rebuild the board.</p>
+        {actualJobs.length?<div className="actualList">{actualJobs.map((job,idx)=><div className={`actualRow ${job.status==="UNFILLED"?"unfilledRow":job.status==="DOUBLE-OUT"?"doubleRow":""}`} key={job.id}>
+          <div className="tileTitleLine">
+            <label>{job.label}</label>
+            {job.status && job.status!=="ASSIGNED" && <span className={`statusPill ${job.status==="UNFILLED"?"unfilledPill":"doublePill"}`}>{job.status}</span>}
+          </div>
+          {job.reason && <small className="tileReason">{job.reason}</small>}
           <small>Planned return tie-up / markup time: {job.plannedReturn}</small>
-          <input value={job.actualReturn} onChange={ev=>{const copy=[...actualJobs];copy[idx]={...copy[idx],actualReturn:ev.target.value};setActualJobs(copy);}}/>
+          {job.status==="UNFILLED"
+            ? <div className="unfilledHint">Add a Manual Double-Out / Rest Override below, then press Recalculate Actual Board.</div>
+            : <input value={job.actualReturn} onChange={ev=>{const copy=[...actualJobs];copy[idx]={...copy[idx],actualReturn:ev.target.value};setActualJobs(copy);}}/>
+          }
         </div>)}<button onClick={recalcActualSummary}>Recalculate Actual Board</button></div>:<p className="empty">No worked jobs generated yet.</p>}
 
-        {actualResult&&<>
-          <h3>Adjusted Summary</h3>
-          {summaryControls()}
-          <pre className="summaryPre" style={{fontSize:`${summaryFontSize}px`}}>{actualResult}</pre>
-        </>}
-
-        <h2>Planned Simulation Summary</h2>
+        <h2>Simulation Summary</h2>
+        <p className="summaryMode"><b>Mode:</b> {summaryMode}</p>
+        {summaryMode!=="Planned" && <p className="empty">Showing adjusted board based on edited actual tie-up times. Press Run to rebuild the planned summary.</p>}
         {summaryControls()}
         <pre className="summaryPre" style={{fontSize:`${summaryFontSize}px`}}>{result||"Run the simulation to see results here."}</pre>
 
         {summaryFullscreen&&<div className="summaryModal">
-          <div className="summaryModalHeader"><strong>Simulation Summary</strong><button className="danger" onClick={()=>setSummaryFullscreen(false)}>Close</button></div>
+          <div className="summaryModalHeader"><strong>Simulation Summary — {summaryMode}</strong><button className="danger" onClick={()=>setSummaryFullscreen(false)}>Close</button></div>
           <div className="summaryModalControls">{summaryControls()}</div>
-          <pre className="summaryPre modalPre" style={{fontSize:`${summaryFontSize}px`}}>{[actualResult,result].filter(Boolean).join("\n\n") || "Run the simulation to see results here."}</pre>
+          <pre className="summaryPre modalPre" style={{fontSize:`${summaryFontSize}px`}}>{result || "Run the simulation to see results here."}</pre>
         </div>}
       </section>
     </main>
