@@ -206,39 +206,73 @@ function App(){
     return status.label;
   }
 
+  function isSameDayAbs(abs,day){
+    const start=DAY_INDEX[day]*1440;
+    return abs>=start && abs<start+1440;
+  }
+
   function boardSections(board,day,current,availability,statusByEmployee={}){
-    const boardRows=[], relief=[], vacation=[], holdDown=[], block=[], unavailable=[];
+    const boardRows=[], unavailableReasons=[];
+    const dayStart=DAY_INDEX[day]*1440;
+    const dayEnd=dayStart+1440;
+
     for(const e of board){
       const until=availability[e.name]||0;
       const blockRested=blockRestedTimeAbs(e.name,current);
       const status=statusByEmployee[e.name];
       const statusLabel=activeStatusLabel(status,current);
-      if(e.holdDownRegular){ holdDown.push(`${e.name} — HOLD-DOWN for ${e.holdDownRegular}`); continue; }
-      if(blockRested!==null){ block.push(`${e.name} — BLOCK; available ${fmtAbs(blockRested)}`); continue; }
-      if(isExtraVacation(e.name,day)){ vacation.push(`${e.name} — VAC; marks up ${NEXT_DAY[day]} 00:01`); continue; }
-      if(e.reliefDay===day){ relief.push(`${e.name} — RELIEF; normal markup ${NEXT_DAY[day]} ${e.markupTime}`); continue; }
-      if(until>current){
-        if(statusLabel){
-          unavailable.push(`${e.name} — ${statusLabel}; available ${fmtAbs(until)}`);
-        }else{
-          boardRows.push(`${e.name} — available ${fmtAbs(until)}`);
-        }
+
+      // Hard unavailable statuses: these remove the person from the extra board.
+      // Hold-down wins over same-day availability/rest notes.
+      if(e.holdDownRegular){
+        unavailableReasons.push(`${e.name} — HOLD-DOWN for ${e.holdDownRegular}`);
         continue;
       }
-      boardRows.push(e.name);
+
+      const sameDayAvailable =
+        (until>current && until<dayEnd) ||
+        (blockRested!==null && blockRested<dayEnd);
+
+      // Uniform daily board rule:
+      // If they are or will be available at any point today, show them in board order.
+      // Board order only needs the availability note, not the job/status reason.
+      // Exception: hard unavailable statuses like HOLD-DOWN stay under Unavailable.
+      if(sameDayAvailable){
+        const visibleUntil=Math.max(until, blockRested || 0);
+        boardRows.push(`${e.name} — available ${fmtAbs(visibleUntil)}`);
+        continue;
+      }
+
+      if(until<=current && blockRested===null && !isExtraVacation(e.name,day) && e.reliefDay!==day){
+        boardRows.push(e.name);
+        continue;
+      }
+
+      // Unavailable reasons live here, not in board order.
+      if(blockRested!==null){ unavailableReasons.push(`${e.name} — BLOCK; available ${fmtAbs(blockRested)}`); continue; }
+      if(isExtraVacation(e.name,day)){ unavailableReasons.push(`${e.name} — VAC; marks up ${NEXT_DAY[day]} 00:01`); continue; }
+      if(e.reliefDay===day){ unavailableReasons.push(`${e.name} — RELIEF; normal markup ${NEXT_DAY[day]} ${e.markupTime}`); continue; }
+
+      if(until>current){
+        unavailableReasons.push(`${e.name} — ${statusLabel || "RESTING / OUT"}; available ${fmtAbs(until)}`);
+        continue;
+      }
     }
-    return {boardRows,unavailable,relief,vacation,block,holdDown};
+
+    return {boardRows,unavailableReasons};
   }
 
   function appendBoardSections(lines,board,day,current,availability,label="Ending Board Order",statusByEmployee={}){
     const s=boardSections(board,day,current,availability,statusByEmployee);
     lines.push(`${label}:`);
-    if(s.boardRows.length) s.boardRows.forEach((n,i)=>lines.push(`${i+1}. ${n}`)); else lines.push("- None currently available on board");
-    if(s.unavailable.length){ lines.push(""); lines.push("Unavailable / Resting / Out on Assignment:"); s.unavailable.forEach(x=>lines.push(`- ${x}`)); }
-    if(s.relief.length){ lines.push(""); lines.push("Relief:"); s.relief.forEach(x=>lines.push(`- ${x}`)); }
-    if(s.vacation.length){ lines.push(""); lines.push("Vacation:"); s.vacation.forEach(x=>lines.push(`- ${x}`)); }
-    if(s.block.length){ lines.push(""); lines.push("Block Training:"); s.block.forEach(x=>lines.push(`- ${x}`)); }
-    if(s.holdDown.length){ lines.push(""); lines.push("Hold-Down / N/A:"); s.holdDown.forEach(x=>lines.push(`- ${x}`)); }
+    if(s.boardRows.length) s.boardRows.forEach((n,i)=>lines.push(`${i+1}. ${n}`));
+    else lines.push("- None currently available on board");
+
+    if(s.unavailableReasons.length){
+      lines.push("");
+      lines.push("Unavailable:");
+      s.unavailableReasons.forEach(x=>lines.push(`- ${x}`));
+    }
   }
 
   function processDayStartMarkups(board,day,availability,lines,statusByEmployee={}){
@@ -558,11 +592,7 @@ function App(){
     const weekEnd=7*1440;
     const finalSections=boardSections(board,"Sunday",weekEnd,availability,statusByEmployee);
     if(finalSections.boardRows.length) finalSections.boardRows.forEach((n,i)=>lines.push(`${i+1}. ${n}`)); else lines.push("- None currently available on board");
-    if(finalSections.unavailable.length){ lines.push(""); lines.push("Unavailable / Resting / Out on Assignment:"); finalSections.unavailable.forEach(x=>lines.push(`- ${x}`)); }
-    if(finalSections.relief.length){ lines.push(""); lines.push("Relief:"); finalSections.relief.forEach(x=>lines.push(`- ${x}`)); }
-    if(finalSections.vacation.length){ lines.push(""); lines.push("Vacation:"); finalSections.vacation.forEach(x=>lines.push(`- ${x}`)); }
-    if(finalSections.block.length){ lines.push(""); lines.push("Block Training:"); finalSections.block.forEach(x=>lines.push(`- ${x}`)); }
-    if(finalSections.holdDown.length){ lines.push(""); lines.push("Hold-Down / N/A:"); finalSections.holdDown.forEach(x=>lines.push(`- ${x}`)); }
+    if(finalSections.unavailableReasons.length){ lines.push(""); lines.push("Unavailable:"); finalSections.unavailableReasons.forEach(x=>lines.push(`- ${x}`)); }
 
     return { text: lines.join("\n"), workedJobs };
   }

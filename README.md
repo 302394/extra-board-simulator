@@ -92,3 +92,75 @@ Board order/status fix:
 - Working assignment labels now expire at the return tie-up/markup time.
 - After someone ties up and marks up from a job, they show back in board order with an availability note if still resting.
 - Example: Jayden ties up Tuesday 00:47 and is rested Tuesday 08:47, so Tuesday starting board shows Jayden — available Tuesday 08:47 instead of hiding him under Out on Assignment.
+
+
+## v21 note
+
+Daily board visibility cleanup:
+- Starting/Ending Board Order now treats the day as the usable board for that calendar day.
+- If someone becomes available later the same day, they stay in board order with an availability note.
+- Example: Dave marks up Friday 00:01, so Friday shows Dave in board order with "available Friday 00:01" instead of hiding him under Unavailable.
+- Active assignments, block, relief, and vacation still show in their separate status sections.
+
+
+## v22 note
+
+Same-day board order status cleanup:
+- If someone becomes available anytime on the same calendar day, they stay in that day's board order.
+- The availability/status note now appears next to their name in board order.
+- Example: Dave — VAC; available Friday 00:01.
+- Example: Terry — WORKING WEN 7/8 for Chris; available Friday 09:07.
+- Unavailable section is now only for people not returning until a later day or truly unavailable.
+
+
+## v23 note
+
+Full-day board order rule:
+- If a person becomes available at any time during the calendar day, they stay in that day's board order.
+- Status appears next to their name, e.g. VAC, WORKING, BLOCK, RELIEF, or HOLD-DOWN.
+- Unavailable section is only for people who do not return until a later day or are otherwise unavailable.
+- Example Friday board:
+  1. Dave — VAC; available Friday 00:01
+  2. Terry — WORKING WEN 7/8 for Chris; available Friday 09:07
+  3. Jayden — WORKING PIN-UP Yard Switching; available Friday 11:30
+
+
+## v24 note
+
+Uniform board status display:
+- Board Order now includes anyone available now or later that same day.
+- Board Order only shows name + available time note.
+- Job/status reasons now live under Unavailable / Unavailable.
+- People unavailable only until later that same day do not get placed under Unavailable / Unavailable.
+- Applies consistently across every day and the final end-of-week board order.
+
+
+## v25 note
+
+Unavailable label cleanup:
+- Removed "Unavailable" wording because that can mean a different formal railroad status.
+- Section now reads simply "Unavailable:"
+- Reasons under that section use WORKING, VAC, RELIEF, BLOCK, or HOLD-DOWN.
+
+
+## v26 note
+
+Terminology cleanup:
+- Removed every remaining "Unavailable" label/string.
+- The status section now uses only "Unavailable:" because "unavailable" has a formal railroad meaning.
+
+
+## v27 note
+
+Run button fix:
+- Fixed stale final-summary references that could crash the Run button.
+- Final End-of-Week Board Order now reads the current `unavailableReasons` bucket.
+- Confirmed the header wording remains `Unavailable:` with no "Out of Service" wording.
+
+
+## v28 note
+
+Hold-down board display fix:
+- HOLD-DOWN now always removes that employee from the extra board.
+- A relief-day markup or same-day availability note no longer puts someone back on board while they are holding down.
+- Example: Billy holding down Kevin stays under Unavailable as HOLD-DOWN for Kevin, not in Friday board order.
