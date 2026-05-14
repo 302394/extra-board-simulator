@@ -322,6 +322,38 @@ function App(){
   function callNext(board,day,job,start,returnStart,returnEnd,availability,lines){
     const next=NEXT_DAY[day];
     const skipReasons=[];
+    const turn=turnName(job);
+
+    // Manual double-out/rest override is a FORCE assignment.
+    // It applies even if the normal board would have assigned somebody else.
+    // This lets the sim model small-base weirdness and caller/crew-desk exceptions.
+    const override=state.doubleOuts.find(d=>d.day===day && (d.turn==="Any" || d.turn===turn));
+    if(override){
+      const employee=board.find(e=>e.name===override.employee) || EXTRA_START.find(e=>e.name===override.employee);
+      if(employee){
+        const availableAt=availability[employee.name]||0;
+        const conflict=start<availableAt
+          ? `Conflict: ${employee.name} available ${fmtAbs(availableAt)}, job starts ${fmtAbs(start)}.`
+          : "Manual override used.";
+
+        const idx=board.findIndex(e=>e.name===employee.name);
+        let called=employee;
+        if(idx>=0){
+          [called]=board.splice(idx,1);
+          board.push(called);
+        }else{
+          board.push(employee);
+          called=employee;
+          moveToBottom(board,employee.name);
+        }
+
+        lines.push(`  DOUBLE-OUT / REST OVERRIDE: ${employee.name} forced onto ${turn}. ${conflict}`);
+        const rest=requiredRestMinutes(returnStart,returnEnd);
+        availability[employee.name]=returnEnd+rest;
+        lines.push(`  ${employee.name} next available after forced double-out/rest (${rest/60}h rest) at ${fmtAbs(availability[employee.name])}`);
+        return {called,double:true,skipReasons};
+      }
+    }
 
     for(const employee of [...board]){
       const idx=board.findIndex(e=>e.name===employee.name);
@@ -349,20 +381,6 @@ function App(){
       return {called,double:false,skipReasons};
     }
 
-    const turn=turnName(job);
-    const override=state.doubleOuts.find(d=>d.day===day && (d.turn==="Any" || d.turn===turn));
-    if(override){
-      const employee=board.find(e=>e.name===override.employee) || EXTRA_START.find(e=>e.name===override.employee);
-      if(employee){
-        moveToBottom(board,employee.name);
-        const availableAt=availability[employee.name]||0;
-        const conflict=start<availableAt ? `Conflict: ${employee.name} available ${fmtAbs(availableAt)}, job starts ${fmtAbs(start)}.` : "Manual override used.";
-        lines.push(`  DOUBLE-OUT / REST OVERRIDE: ${employee.name} forced onto ${turn}. ${conflict}`);
-        const rest=requiredRestMinutes(returnStart,returnEnd);
-        availability[employee.name]=returnEnd+rest;
-        return {called:employee,double:true,skipReasons};
-      }
-    }
     return {called:null,double:false,skipReasons};
   }
 
@@ -807,7 +825,7 @@ function App(){
         <div className="mobileActionRow">{actionButtons("bottomActions")}</div>
 
         <h2>Live Board Replay / Actual Tie-Ups</h2>
-        <p className="empty">Run planned simulation first, then edit actual return tie-up times. UNFILLED jobs stay visible here. Add a Manual Double-Out / Rest Override, then press Recalculate Actual Board to force a job and rebuild the board.</p>
+        <p className="empty">Run planned simulation first, then edit actual return tie-up times. UNFILLED jobs stay visible here. Add a Manual Double-Out / Rest Override, then press Recalculate Actual Board to force that employee onto a job and rebuild the board, even if the job was not unfilled.</p>
         {actualJobs.length?<div className="actualList">{actualJobs.map((job,idx)=><div className={`actualRow ${job.status==="UNFILLED"?"unfilledRow":job.status==="DOUBLE-OUT"?"doubleRow":""}`} key={job.id}>
           <div className="tileTitleLine">
             <label>{job.label}</label>

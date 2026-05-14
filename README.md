@@ -164,3 +164,12 @@ Hold-down board display fix:
 - HOLD-DOWN now always removes that employee from the extra board.
 - A relief-day markup or same-day availability note no longer puts someone back on board while they are holding down.
 - Example: Billy holding down Kevin stays under Unavailable as HOLD-DOWN for Kevin, not in Friday board order.
+
+
+## v29 note
+
+Manual double-out override behavior:
+- Manual Double-Out / Rest Override is now a force assignment.
+- It can replace the normal board assignment even when the job is not unfilled.
+- This lets the simulator model small-base exceptions where a specific employee doubles through even though the board had another legal assignment available.
+- The forced assignment is still labeled DOUBLE-OUT / REST OVERRIDE in tiles and summary.
