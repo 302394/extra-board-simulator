@@ -139,6 +139,7 @@ function App(){
   const [state,setState]=useState(()=>{ try{ const s=localStorage.getItem(STORAGE_KEY); return s?{...defaultState,...JSON.parse(s)}:defaultState; }catch{return defaultState;} });
   const [result,setResult]=useState("");
   const [actualJobs,setActualJobs]=useState([]);
+  const [actualEdits,setActualEdits]=useState(()=>{ try{ return JSON.parse(localStorage.getItem(`${STORAGE_KEY}-actual-edits`)||"{}"); }catch{return {};} });
   const [actualResult,setActualResult]=useState("");
   const [summaryMode,setSummaryMode]=useState("Planned");
   const [summaryFontSize,setSummaryFontSize]=useState(14);
@@ -146,6 +147,7 @@ function App(){
   const [holdDaySelection,setHoldDaySelection]=useState([]);
 
   useEffect(()=>localStorage.setItem(STORAGE_KEY,JSON.stringify(state)),[state]);
+  useEffect(()=>localStorage.setItem(`${STORAGE_KEY}-actual-edits`,JSON.stringify(actualEdits)),[actualEdits]);
 
   const regulars=useMemo(uniqueRegulars,[]);
   const extras=EXTRA_START.map(e=>e.name);
@@ -198,33 +200,54 @@ function App(){
       return at-bt || original[a.name]-original[b.name];
     });
   }
-  function boardSections(board,day,current,availability){
-    const boardRows=[], relief=[], vacation=[], holdDown=[], block=[];
+  function activeStatusLabel(status,current){
+    if(!status) return null;
+    if(status.kind==="WORKING" && status.until!==undefined && current>=status.until) return null;
+    return status.label;
+  }
+
+  function boardSections(board,day,current,availability,statusByEmployee={}){
+    const boardRows=[], relief=[], vacation=[], holdDown=[], block=[], unavailable=[];
     for(const e of board){
       const until=availability[e.name]||0;
       const blockRested=blockRestedTimeAbs(e.name,current);
-      if(e.holdDownRegular){ holdDown.push(`${e.name} — holding down ${e.holdDownRegular}`); continue; }
-      if(blockRested!==null){ block.push(`${e.name} — block training/rest; available ${fmtAbs(blockRested)}`); continue; }
-      if(isExtraVacation(e.name,day)){ vacation.push(`${e.name} — vacation; marks up ${NEXT_DAY[day]} 00:01`); continue; }
-      if(e.reliefDay===day){ relief.push(`${e.name} — relief day; normal markup ${NEXT_DAY[day]} ${e.markupTime}`); continue; }
-      boardRows.push(until>current ? `${e.name} — available ${fmtAbs(until)}` : e.name);
+      const status=statusByEmployee[e.name];
+      const statusLabel=activeStatusLabel(status,current);
+      if(e.holdDownRegular){ holdDown.push(`${e.name} — HOLD-DOWN for ${e.holdDownRegular}`); continue; }
+      if(blockRested!==null){ block.push(`${e.name} — BLOCK; available ${fmtAbs(blockRested)}`); continue; }
+      if(isExtraVacation(e.name,day)){ vacation.push(`${e.name} — VAC; marks up ${NEXT_DAY[day]} 00:01`); continue; }
+      if(e.reliefDay===day){ relief.push(`${e.name} — RELIEF; normal markup ${NEXT_DAY[day]} ${e.markupTime}`); continue; }
+      if(until>current){
+        if(statusLabel){
+          unavailable.push(`${e.name} — ${statusLabel}; available ${fmtAbs(until)}`);
+        }else{
+          boardRows.push(`${e.name} — available ${fmtAbs(until)}`);
+        }
+        continue;
+      }
+      boardRows.push(e.name);
     }
-    return {boardRows,relief,vacation,block,holdDown};
+    return {boardRows,unavailable,relief,vacation,block,holdDown};
   }
-  function appendBoardSections(lines,board,day,current,availability,label="Ending Board Order"){
-    const s=boardSections(board,day,current,availability);
+
+  function appendBoardSections(lines,board,day,current,availability,label="Ending Board Order",statusByEmployee={}){
+    const s=boardSections(board,day,current,availability,statusByEmployee);
     lines.push(`${label}:`);
-    if(s.boardRows.length) s.boardRows.forEach((n,i)=>lines.push(`${i+1}. ${n}`)); else lines.push("- None on board");
+    if(s.boardRows.length) s.boardRows.forEach((n,i)=>lines.push(`${i+1}. ${n}`)); else lines.push("- None currently available on board");
+    if(s.unavailable.length){ lines.push(""); lines.push("Unavailable / Resting / Out on Assignment:"); s.unavailable.forEach(x=>lines.push(`- ${x}`)); }
     if(s.relief.length){ lines.push(""); lines.push("Relief:"); s.relief.forEach(x=>lines.push(`- ${x}`)); }
     if(s.vacation.length){ lines.push(""); lines.push("Vacation:"); s.vacation.forEach(x=>lines.push(`- ${x}`)); }
     if(s.block.length){ lines.push(""); lines.push("Block Training:"); s.block.forEach(x=>lines.push(`- ${x}`)); }
     if(s.holdDown.length){ lines.push(""); lines.push("Hold-Down / N/A:"); s.holdDown.forEach(x=>lines.push(`- ${x}`)); }
   }
 
-  function processDayStartMarkups(board,day,availability,lines){
+  function processDayStartMarkups(board,day,availability,lines,statusByEmployee={}){
     const prev=PREV_DAY[day], moved=new Set();
     const todayVac=new Set(state.extraVacations.filter(v=>v.day===day).map(v=>v.name));
-    for(const name of todayVac) availability[name]=Math.max(availability[name]||0,(DAY_INDEX[day]+1)*1440+1);
+    for(const name of todayVac){
+      availability[name]=Math.max(availability[name]||0,(DAY_INDEX[day]+1)*1440+1);
+      statusByEmployee[name]={label:"VAC"};
+    }
 
     const vacEnded=[...new Set(state.extraVacations.filter(v=>v.day===prev).map(v=>v.name))];
     for(const name of vacEnded){
@@ -309,8 +332,38 @@ function App(){
     return {called:null,double:false,skipReasons};
   }
 
+  function buildVacancyOverview(){
+    const lines=[];
+    lines.push("#".repeat(80),"WEEKLY VACANCY / ABSENCE SUMMARY","#".repeat(80));
+
+    const holdEntries=Object.entries(state.fullWeekVacations);
+    lines.push("Full-week vacations / hold-downs:");
+    if(holdEntries.length){
+      holdEntries.forEach(([regular,e])=>lines.push(`- ${regular}: ${holdExtra(e)==="None" ? "vacation, no hold-down" : `${holdExtra(e)} holding down`} (${shortDays(holdDays(regular,e))})`));
+    }else lines.push("- None");
+
+    lines.push("","Single-day regular vacancies:");
+    if(state.singleRegularVacancies.length) state.singleRegularVacancies.forEach(v=>lines.push(`- ${v.day}: ${v.regular}`)); else lines.push("- None");
+
+    lines.push("","Extra-board vacations:");
+    if(state.extraVacations.length) state.extraVacations.forEach(v=>lines.push(`- ${v.day}: ${v.name}`)); else lines.push("- None");
+
+    lines.push("","Block training:");
+    if(state.blockTraining.length) state.blockTraining.forEach(b=>lines.push(`- ${b.employee}: ${b.startDay} ${b.startTime||"08:00"} through ${b.endDay}; markup ${b.markupDay} ${b.markupTime}${b.notes?` (${b.notes})`:""}`)); else lines.push("- None");
+
+    lines.push("","Pin-up / extra jobs:");
+    if(state.pinups.length) state.pinups.forEach(p=>lines.push(`- ${p.day}: ${p.label} ON ${p.onDuty} OFF ${p.offDuty}`)); else lines.push("- None");
+
+    lines.push("","Manual double-outs / rest overrides:");
+    if(state.doubleOuts.length) state.doubleOuts.forEach(d=>lines.push(`- ${d.employee}: ${d.day} ${d.regular} / ${d.turn}`)); else lines.push("- None");
+
+    lines.push("");
+    return lines;
+  }
+
   function buildSimulation(actualOverrides={}, adjusted=false){
     const lines=[], employeeSummary={}, dailySummary=Object.fromEntries(DAYS.map(d=>[d,[]])), availability={}, workedJobs=[];
+    const statusByEmployee={};
     const board=state.boardOrder.filter(n=>n!=="N/A").map(name=>{
       const base=EXTRA_START.find(e=>e.name===name);
       return {...base,markupTime:state.markupTimes[name]||base.markupTime,holdDownRegular:null};
@@ -325,6 +378,7 @@ function App(){
     }
 
     lines.push(adjusted ? "ACTUAL BOARD REPLAY / ADJUSTED SIMULATION" : "RAILROAD EXTRA BOARD WEEKLY SIMULATION","=".repeat(80),"Jobs are modeled as complete turns: outbound plus return trip home.","Auto rest rule: return leg under 12h = 8h rest; return leg 12h or more = 10h rest", adjusted ? "Edited actual return tie-ups override later board calculations, relief 24-hour markups, and later job eligibility." : "");
+    lines.push("", ...buildVacancyOverview());
     lines.push("Starting board:");
     board.forEach((e,i)=>lines.push(`${i+1}. ${e.name}${e.holdDownRegular?` — N/A holding down ${e.holdDownRegular}`:""}`));
     lines.push("");
@@ -378,8 +432,8 @@ function App(){
 
     for(const day of DAYS){
       lines.push("=".repeat(80),day.toUpperCase(),"=".repeat(80));
-      processDayStartMarkups(board,day,availability,lines);
-      appendBoardSections(lines,board,day,DAY_INDEX[day]*1440,availability,"Starting Board Order");
+      processDayStartMarkups(board,day,availability,lines,statusByEmployee);
+      appendBoardSections(lines,board,day,DAY_INDEX[day]*1440,availability,"Starting Board Order",statusByEmployee);
       lines.push("");
 
       const jobs=vacanciesByDay[day];
@@ -412,6 +466,7 @@ function App(){
             if(holdBlockConflict) lines.push(`  WARNING: ${v.holdDown} would not have 8h rest before block starts ${fmtAbs(holdBlockConflict.start)}.`);
             dailySummary[day].push(text);
             employeeSummary[v.holdDown]=[...(employeeSummary[v.holdDown]||[]),`${day.slice(0,3)} ${turnName(v.job)}`];
+            statusByEmployee[v.holdDown]={kind:"WORKING", until:ret, label:`HOLD-DOWN / WORKING ${turnName(v.job)} for ${v.regular}`};
             workedJobs.push({
               id,
               employee:v.holdDown, day, pool:v.job.pool, train:v.job.turn,
@@ -455,6 +510,7 @@ function App(){
           }else if(v.regular==="PIN-UP"){
             text=`${called.name}${isDouble?" DOUBLE-OUT / REST OVERRIDE":""} works pin-up ${v.job.train} | ON ${fmtAbs(start)} OFF ${fmtAbs(ret)}`;
             employeeSummary[called.name]=[...(employeeSummary[called.name]||[]),`${day.slice(0,3)} PIN-UP ${v.job.train}`];
+            statusByEmployee[called.name]={kind:"WORKING", until:ret, label:`${isDouble?"DOUBLE-OUT / ":""}WORKING PIN-UP ${v.job.train}`};
             workedJobs.push({
               id,
               employee:called.name, day, pool:"PIN-UP", train:v.job.train,
@@ -467,6 +523,7 @@ function App(){
           }else{
             text=`${called.name}${isDouble?" DOUBLE-OUT / REST OVERRIDE":""} works ${turnName(v.job)} turn for ${v.regular} | OUTBOUND ON ${fmtAbs(start)} RETURN TIE-UP ${fmtAbs(ret)}`;
             employeeSummary[called.name]=[...(employeeSummary[called.name]||[]),`${day.slice(0,3)} ${turnName(v.job)}`];
+            statusByEmployee[called.name]={kind:"WORKING", until:ret, label:`${isDouble?"DOUBLE-OUT / ":""}WORKING ${turnName(v.job)} for ${v.regular}`};
             workedJobs.push({
               id,
               employee:called.name, day, pool:v.job.pool, train:v.job.turn,
@@ -484,7 +541,7 @@ function App(){
       }
 
       lines.push("");
-      appendBoardSections(lines,board,day,DAY_INDEX[day]*1440,availability);
+      appendBoardSections(lines,board,day,DAY_INDEX[day]*1440,availability,"Ending Board Order",statusByEmployee);
       lines.push("");
     }
 
@@ -497,13 +554,27 @@ function App(){
       lines.push("");
     }
 
+    lines.push("","#".repeat(80),"FINAL END-OF-WEEK BOARD ORDER","#".repeat(80));
+    const weekEnd=7*1440;
+    const finalSections=boardSections(board,"Sunday",weekEnd,availability,statusByEmployee);
+    if(finalSections.boardRows.length) finalSections.boardRows.forEach((n,i)=>lines.push(`${i+1}. ${n}`)); else lines.push("- None currently available on board");
+    if(finalSections.unavailable.length){ lines.push(""); lines.push("Unavailable / Resting / Out on Assignment:"); finalSections.unavailable.forEach(x=>lines.push(`- ${x}`)); }
+    if(finalSections.relief.length){ lines.push(""); lines.push("Relief:"); finalSections.relief.forEach(x=>lines.push(`- ${x}`)); }
+    if(finalSections.vacation.length){ lines.push(""); lines.push("Vacation:"); finalSections.vacation.forEach(x=>lines.push(`- ${x}`)); }
+    if(finalSections.block.length){ lines.push(""); lines.push("Block Training:"); finalSections.block.forEach(x=>lines.push(`- ${x}`)); }
+    if(finalSections.holdDown.length){ lines.push(""); lines.push("Hold-Down / N/A:"); finalSections.holdDown.forEach(x=>lines.push(`- ${x}`)); }
+
     return { text: lines.join("\n"), workedJobs };
+  }
+
+  function applySavedEditsToCards(cards){
+    return cards.map(j=>actualEdits[j.id] ? {...j, actualReturn:actualEdits[j.id]} : j);
   }
 
   function runSimulation(){
     const out=buildSimulation();
     setResult(out.text);
-    setActualJobs(out.workedJobs);
+    setActualJobs(applySavedEditsToCards(out.workedJobs));
     setActualResult("");
     setSummaryMode("Planned");
   }
@@ -526,7 +597,7 @@ function App(){
       const adjustedCards=out.workedJobs
         .map(j=>({
           ...j,
-          actualReturn:fmtAbs(j.actualReturnAbs ?? overrides[j.id] ?? j.plannedReturnAbs),
+          actualReturn:actualEdits[j.id] || fmtAbs(j.actualReturnAbs ?? overrides[j.id] ?? j.plannedReturnAbs),
         }))
         .sort((a,b)=>(a.actualReturnAbs ?? parseActualReturnForJob(a,a.actualReturn))-(b.actualReturnAbs ?? parseActualReturnForJob(b,b.actualReturn)));
 
@@ -549,6 +620,7 @@ function App(){
     setState(defaultState);
     setResult("");
     setActualJobs([]);
+    setActualEdits({});
     setActualResult("");
     setSummaryMode("Planned");
   }
@@ -704,7 +776,7 @@ function App(){
       <section className="card results">
         <div className="mobileActionRow">{actionButtons("bottomActions")}</div>
 
-        <h2>Actual Return Tie-Up Adjustments</h2>
+        <h2>Live Board Replay / Actual Tie-Ups</h2>
         <p className="empty">Run planned simulation first, then edit actual return tie-up times. UNFILLED jobs stay visible here. Add a Manual Double-Out / Rest Override, then press Recalculate Actual Board to force a job and rebuild the board.</p>
         {actualJobs.length?<div className="actualList">{actualJobs.map((job,idx)=><div className={`actualRow ${job.status==="UNFILLED"?"unfilledRow":job.status==="DOUBLE-OUT"?"doubleRow":""}`} key={job.id}>
           <div className="tileTitleLine">
@@ -715,7 +787,7 @@ function App(){
           <small>Planned return tie-up / markup time: {job.plannedReturn}</small>
           {job.status==="UNFILLED"
             ? <div className="unfilledHint">Add a Manual Double-Out / Rest Override below, then press Recalculate Actual Board.</div>
-            : <input value={job.actualReturn} onChange={ev=>{const copy=[...actualJobs];copy[idx]={...copy[idx],actualReturn:ev.target.value};setActualJobs(copy);}}/>
+            : <input value={job.actualReturn} onChange={ev=>{const value=ev.target.value;const copy=[...actualJobs];copy[idx]={...copy[idx],actualReturn:value};setActualJobs(copy);setActualEdits(edits=>({...edits,[job.id]:value}));}}/>
           }
         </div>)}<button onClick={recalcActualSummary}>Recalculate Actual Board</button></div>:<p className="empty">No worked jobs generated yet.</p>}
 
