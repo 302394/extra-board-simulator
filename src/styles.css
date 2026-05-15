@@ -1,5 +1,17 @@
 
-:root{color-scheme:dark;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0b1020;color:#e8edf7}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top left,rgba(67,97,238,.25),transparent 32rem),linear-gradient(135deg,#0b1020,#101827)}button,input,select{font:inherit}.app{min-height:100vh;padding:16px;max-width:1440px;margin:auto}header{position:sticky;top:0;z-index:5;display:flex;justify-content:space-between;gap:16px;align-items:center;padding:14px;margin-bottom:16px;border:1px solid rgba(255,255,255,.1);border-radius:22px;background:rgba(13,19,35,.92);backdrop-filter:blur(12px);box-shadow:0 18px 50px rgba(0,0,0,.28)}h1{margin:0;font-size:clamp(1.5rem,5vw,2.4rem);display:flex;gap:10px;align-items:center}h2{margin-top:0;font-size:1.25rem}h3{margin-bottom:8px;color:#c8d5ff}.eyebrow{color:#90a4d8;text-transform:uppercase;letter-spacing:.14em;font-size:.75rem;margin:0 0 4px}.headerActions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}button{border:0;background:#5b7cfa;color:white;border-radius:14px;padding:10px 12px;display:inline-flex;gap:8px;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 10px 24px rgba(91,124,250,.25)}button.secondary{background:#26324f}button.danger{background:#9d2d45}button.small{padding:7px 9px;border-radius:10px;font-size:.85rem;box-shadow:none}.grid{display:grid;grid-template-columns:380px 420px minmax(420px,1fr);gap:16px;align-items:start}.card,.subcard{border:1px solid rgba(255,255,255,.1);background:rgba(16,24,43,.8);border-radius:22px;padding:14px;box-shadow:0 18px 60px rgba(0,0,0,.22)}.subcard{background:rgba(255,255,255,.035);margin:12px 0;border-radius:18px}.row{display:grid;grid-template-columns:115px 1fr;gap:8px;align-items:center;margin:8px 0}label{display:block;color:#cbd6f7;margin:7px 0 4px}input,select{width:100%;padding:11px 10px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:#0c1324;color:#f2f6ff;min-height:44px}.check{display:flex;align-items:center;gap:8px}.check input{width:20px;min-height:20px}small,.empty{color:#92a0bf}.list{display:grid;gap:8px;margin-top:10px}.listItem{display:flex;justify-content:space-between;gap:8px;align-items:center;background:rgba(0,0,0,.18);border-radius:14px;padding:8px}.results{min-height:70vh}pre{overflow:auto;min-height:35vh;max-height:60vh;white-space:pre-wrap;word-break:break-word;background:#050914;border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:14px;line-height:1.45;font-size:.9rem}.actualList{display:grid;gap:10px}.actualRow{display:grid;gap:6px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:10px}.dayButtons{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:8px 0}.dayButton{background:#26324f;box-shadow:none;padding:10px 6px;border:1px solid rgba(255,255,255,.12)}.dayButton.active{background:#5b7cfa;border-color:rgba(255,255,255,.35)}.actionButtons{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.headerActions .actionButtons{justify-content:flex-end}.mobileActionRow{display:none;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,.1)}.bottomActions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}.summaryControls{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 10px}.summaryControls button{box-shadow:none;padding:8px 10px}.summaryPre{transition:font-size .12s ease}.summaryModal{position:fixed;inset:0;z-index:50;background:#050914;padding:10px;display:flex;flex-direction:column}.summaryModalHeader{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:8px;border-bottom:1px solid rgba(255,255,255,.12)}.summaryModalControls{padding:8px;border-bottom:1px solid rgba(255,255,255,.08)}.modalPre{flex:1;max-height:none;min-height:0;margin:8px 0 0}@media(max-width:1180px){.grid{grid-template-columns:1fr 1fr}.results{grid-column:1/-1}}@media(max-width:760px){.app{padding:8px}header{position:static;display:block}.headerActions{display:none}.grid{grid-template-columns:1fr}.row{grid-template-columns:1fr}.card{padding:10px}pre{font-size:.82rem;max-height:65vh}.dayButtons{grid-template-columns:repeat(3,minmax(0,1fr))}.mobileActionRow{display:block}.bottomActions button{min-height:48px;padding:10px 6px;font-size:.9rem}.summaryControls{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}.summaryControls button{padding:10px 4px}}
+:root{color-scheme:dark;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0b1020;color:#e8edf7}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top left,rgba(67,97,238,.25),transparent 32rem),linear-gradient(135deg,#0b1020,#101827)}button,input,select{font:inherit}.app{min-height:100vh;padding:16px;max-width:1760px;margin:auto}header{position:sticky;top:0;z-index:5;display:flex;justify-content:space-between;gap:16px;align-items:center;padding:14px;margin-bottom:16px;border:1px solid rgba(255,255,255,.1);border-radius:22px;background:rgba(13,19,35,.92);backdrop-filter:blur(12px);box-shadow:0 18px 50px rgba(0,0,0,.28)}h1{margin:0;font-size:clamp(1.5rem,5vw,2.4rem);display:flex;gap:10px;align-items:center}h2{margin-top:0;font-size:1.25rem}h3{margin-bottom:8px;color:#c8d5ff}.eyebrow{color:#90a4d8;text-transform:uppercase;letter-spacing:.14em;font-size:.75rem;margin:0 0 4px}.headerActions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}button{border:0;background:#5b7cfa;color:white;border-radius:14px;padding:10px 12px;display:inline-flex;gap:8px;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 10px 24px rgba(91,124,250,.25)}button.secondary{background:#26324f}button.danger{background:#9d2d45}button.small{padding:7px 9px;border-radius:10px;font-size:.85rem;box-shadow:none}.grid{display:grid;grid-template-columns:minmax(320px,420px) minmax(420px,560px) minmax(520px,1fr);gap:16px;align-items:start}.card,.subcard{border:1px solid rgba(255,255,255,.1);background:rgba(16,24,43,.8);border-radius:22px;padding:14px;box-shadow:0 18px 60px rgba(0,0,0,.22)}.subcard{background:rgba(255,255,255,.035);margin:12px 0;border-radius:18px}.row{display:grid;grid-template-columns:115px 1fr;gap:8px;align-items:center;margin:8px 0}label{display:block;color:#cbd6f7;margin:7px 0 4px}input,select{width:100%;padding:11px 10px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:#0c1324;color:#f2f6ff;min-height:44px}.check{display:flex;align-items:center;gap:8px}.check input{width:20px;min-height:20px}small,.empty{color:#92a0bf}.list{display:grid;gap:8px;margin-top:10px}.listItem{display:flex;justify-content:space-between;gap:8px;align-items:center;background:rgba(0,0,0,.18);border-radius:14px;padding:8px}.results{min-height:70vh}pre{overflow:auto;min-height:35vh;max-height:60vh;white-space:pre-wrap;word-break:break-word;background:#050914;border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:14px;line-height:1.45;font-size:.9rem}.actualList{display:grid;gap:10px}.actualRow{display:grid;gap:6px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:10px}.dayButtons{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:8px 0}.dayButton{background:#26324f;box-shadow:none;padding:10px 6px;border:1px solid rgba(255,255,255,.12)}.dayButton.active{background:#5b7cfa;border-color:rgba(255,255,255,.35)}.actionButtons{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.headerActions .actionButtons{justify-content:flex-end}.mobileActionRow{display:none;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,.1)}.bottomActions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}.summaryControls{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 10px}.summaryControls button{box-shadow:none;padding:8px 10px}.summaryPre{transition:font-size .12s ease}.summaryModal{position:fixed;inset:0;z-index:50;background:#050914;padding:10px;display:flex;flex-direction:column}.summaryModalHeader{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:8px;border-bottom:1px solid rgba(255,255,255,.12)}.summaryModalControls{padding:8px;border-bottom:1px solid rgba(255,255,255,.08)}.modalPre{flex:1;max-height:none;min-height:0;margin:8px 0 0}
+@media(min-width:1500px){
+  .app{max-width:1920px;padding-left:24px;padding-right:24px}
+  .grid{grid-template-columns:minmax(340px,430px) minmax(500px,640px) minmax(620px,1fr);gap:20px}
+  .card{padding:16px}
+  .summaryPre{max-height:68vh}
+}
+
+@media(min-width:1181px) and (max-width:1499px){
+  .app{max-width:calc(100vw - 24px)}
+  .grid{grid-template-columns:minmax(300px,360px) minmax(360px,470px) minmax(480px,1fr)}
+}
+@media(max-width:1180px){.grid{grid-template-columns:1fr 1fr}.results{grid-column:1/-1}}@media(max-width:760px){.app{padding:8px}header{position:static;display:block}.headerActions{display:none}.grid{grid-template-columns:1fr}.row{grid-template-columns:1fr}.card{padding:10px}pre{font-size:.82rem;max-height:65vh}.dayButtons{grid-template-columns:repeat(3,minmax(0,1fr))}.mobileActionRow{display:block}.bottomActions button{min-height:48px;padding:10px 6px;font-size:.9rem}.summaryControls{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}.summaryControls button{padding:10px 4px}}
 
 
 .summaryMode {
@@ -64,4 +76,295 @@
   color: #ffd4dc;
   border: 1px solid rgba(157,45,69,.28);
   font-size: .9rem;
+}
+
+
+/* Desktop/tablet layout: setup + vacancies on top, results/summary full width below. */
+@media(min-width:1181px){
+  .grid{
+    grid-template-columns:minmax(360px,520px) minmax(520px,1fr);
+    gap:18px;
+  }
+
+  .grid > section.card:nth-child(1){
+    grid-column:1;
+  }
+
+  .grid > section.card:nth-child(2){
+    grid-column:2;
+  }
+
+  .grid > section.card.results{
+    grid-column:1 / -1;
+  }
+
+  .results{
+    min-height:auto;
+  }
+
+  .summaryPre{
+    max-height:72vh;
+  }
+}
+
+@media(min-width:1600px){
+  .grid{
+    grid-template-columns:minmax(420px,580px) minmax(680px,1fr);
+    gap:22px;
+  }
+}
+
+
+/* v35: On wider screens, keep Setup/Vacancies top layout,
+   but let Vacancies / Jobs use balanced internal columns. */
+@media(min-width:1450px){
+  .grid > section.card:nth-child(2){
+    display:grid;
+    grid-template-columns:repeat(2,minmax(320px,1fr));
+    gap:14px;
+    align-items:stretch;
+  }
+
+  .grid > section.card:nth-child(2) > h2{
+    grid-column:1 / -1;
+    margin-bottom:0;
+  }
+
+  .grid > section.card:nth-child(2) > .subcard{
+    margin:0;
+    min-width:0;
+  }
+}
+
+/* Fallback because :contains is not supported; harmless normal sizing above handles it. */
+@media(min-width:1450px){
+  .grid > section.card:nth-child(2) .listItem{
+    min-height:42px;
+  }
+}
+
+@media(min-width:1750px){
+  .grid{
+    grid-template-columns:minmax(420px,560px) minmax(860px,1fr);
+  }
+
+  .grid > section.card:nth-child(2){
+    grid-template-columns:repeat(2,minmax(390px,1fr));
+  }
+}
+
+
+/* v36 desktop card-wall experiment:
+   Setup + vacancy subcards flow like a desktop card wall.
+   Results still span full width below.
+   Mobile/tablet below this breakpoint remains unchanged. */
+@media(min-width:1450px){
+  .grid{
+    display:block;
+    column-count:3;
+    column-gap:18px;
+  }
+
+  .grid > section.card{
+    break-inside:avoid;
+    margin:0 0 18px;
+  }
+
+  .grid > section.card:nth-child(2){
+    display:contents;
+  }
+
+  .grid > section.card:nth-child(2) > h2{
+    display:block;
+    break-inside:avoid;
+    margin:0 0 12px;
+    padding:0 2px;
+  }
+
+  .grid > section.card:nth-child(2) > .subcard{
+    display:block;
+    break-inside:avoid;
+    margin:0 0 18px;
+    padding:14px;
+    border:1px solid rgba(255,255,255,.1);
+    background:rgba(16,24,43,.8);
+    border-radius:22px;
+    box-shadow:0 18px 60px rgba(0,0,0,.22);
+  }
+
+  .grid > section.card.results{
+    column-span:all;
+    display:block;
+    margin-top:8px;
+  }
+}
+
+@media(min-width:1800px){
+  .grid{
+    column-count:4;
+  }
+}
+
+.miniLabel{display:block;margin-top:8px;font-size:.86rem;color:var(--muted);font-weight:700}
+
+
+/* v42 collapsible vacancy/job sections */
+.collapseSubcard{
+  padding:0;
+  overflow:hidden;
+}
+
+.collapseHeader{
+  width:100%;
+  border:0;
+  background:transparent;
+  box-shadow:none;
+  color:var(--text);
+  display:flex;
+  align-items:center;
+  gap:10px;
+  justify-content:flex-start;
+  padding:14px;
+  text-align:left;
+  font-size:1.05rem;
+  font-weight:800;
+  letter-spacing:.01em;
+}
+
+.collapseHeader:hover{
+  background:rgba(255,255,255,.04);
+  box-shadow:none;
+}
+
+.chevron{
+  display:inline-flex;
+  width:22px;
+  height:22px;
+  align-items:center;
+  justify-content:center;
+  color:var(--muted);
+  font-size:1.15rem;
+}
+
+.collapseBody{
+  padding:0 14px 14px;
+}
+
+.collapseSubcard.closed{
+  background:rgba(16,24,43,.55);
+}
+
+.collapseSubcard.closed .collapseHeader{
+  color:var(--muted);
+}
+
+@media(max-width:760px){
+  .collapseHeader{
+    font-size:1rem;
+    padding:16px 14px;
+  }
+}
+
+
+/* v43 setup / relief cleanup */
+.reliefCard{
+  border:1px solid rgba(255,255,255,.1);
+  background:rgba(16,24,43,.72);
+  border-radius:18px;
+  padding:12px;
+  margin:0 0 12px;
+}
+
+.reliefCard:last-child{
+  margin-bottom:0;
+}
+
+.reliefTitle{
+  display:flex;
+  gap:6px;
+  align-items:baseline;
+  flex-wrap:wrap;
+  margin-bottom:8px;
+}
+
+.reliefTitle b{
+  font-size:1rem;
+}
+
+.reliefTitle span{
+  color:var(--muted);
+  font-size:.92rem;
+}
+
+.reliefCard .row{
+  margin:8px 0;
+}
+
+.reliefCard .check{
+  margin-top:8px;
+}
+
+
+/* v46 fixed desktop columns:
+   Keep Setup in the left column, Vacancies / Jobs in its own column,
+   and Live Board Replay below both. This overrides the old v36 card-wall experiment. */
+@media(min-width:1181px){
+  .grid{
+    display:grid !important;
+    column-count:initial !important;
+    column-gap:initial !important;
+    grid-template-columns:minmax(320px,420px) minmax(520px,1fr) !important;
+    gap:16px !important;
+    align-items:start !important;
+  }
+
+  .grid > section.card{
+    break-inside:auto !important;
+    margin:0 !important;
+  }
+
+  .grid > section.card:nth-child(1){
+    grid-column:1 !important;
+    grid-row:1 !important;
+  }
+
+  .grid > section.card:nth-child(2){
+    grid-column:2 !important;
+    grid-row:1 !important;
+    display:block !important;
+  }
+
+  .grid > section.card:nth-child(2) > h2{
+    display:block !important;
+    margin:0 0 12px !important;
+    padding:0 !important;
+  }
+
+  .grid > section.card:nth-child(2) > .subcard,
+  .grid > section.card:nth-child(2) > .collapseSubcard{
+    display:block !important;
+    margin:12px 0 !important;
+    min-width:0 !important;
+  }
+
+  .grid > section.card.results{
+    grid-column:1 / -1 !important;
+    grid-row:2 !important;
+    column-span:none !important;
+    display:block !important;
+    margin-top:4px !important;
+  }
+}
+
+@media(min-width:1500px){
+  .grid{
+    grid-template-columns:minmax(360px,520px) minmax(720px,1fr) !important;
+    gap:20px !important;
+  }
+}
+
+@media(min-width:1800px){
+  .grid{
+    grid-template-columns:minmax(420px,560px) minmax(860px,1fr) !important;
+  }
 }
