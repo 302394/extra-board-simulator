@@ -56,6 +56,7 @@ const defaultState = {
   pinups:[],
   extraVacations:[],
   blockTraining:[],
+  familiarizationTrips:[],
   doubleOuts:[],
   canceledTrains:[],
   createdTrains:[],
@@ -176,6 +177,11 @@ function inclusiveDays(startDay,endDay){
   return out;
 }
 function jobsForRegularOnDay(regular,day){ return REGULAR_JOBS.filter(j=>j.regular===regular && j.works.includes(day)); }
+function routeJobFor(route){
+  const clean=String(route||"PSC").replace(/ Relief$/,"");
+  const sample=REGULAR_JOBS.find(j=>String(j.pool).replace(/ Relief$/,"")===clean);
+  return sample ? {...sample, regular:"FAMILIARIZATION", works:DAYS} : {...REGULAR_JOBS[0], regular:"FAMILIARIZATION", pool:clean, works:DAYS};
+}
 function allWorkingDaysForRegular(regular){
   const set=new Set();
   REGULAR_JOBS.forEach(j=>{ if(j.regular===regular) j.works.forEach(d=>set.add(d)); });
@@ -253,6 +259,7 @@ function App(){
   const [summaryFullscreen,setSummaryFullscreen]=useState(false);
   const [holdDaySelection,setHoldDaySelection]=useState([]);
   const [extraJobType,setExtraJobType]=useState("PINUP");
+  const [trainingType,setTrainingType]=useState("BLOCK");
   const [openSections,setOpenSections]=useState({
     startingBoard:false,
     reliefMarkup:false,
@@ -276,12 +283,21 @@ function App(){
   function isExtraVacation(name,day){ return state.extraVacations.some(v=>v.name===name&&v.day===day); }
 
   function blockIntervalsFor(name){
-    return state.blockTraining.filter(b=>b.employee===name).map(b=>{
+    const blocks=state.blockTraining.filter(b=>b.employee===name).map(b=>{
       const start=DAY_INDEX[b.startDay]*1440+parseTime(b.startTime||"08:00");
       let markup=DAY_INDEX[b.markupDay]*1440+parseTime(b.markupTime||"00:01");
       while(markup<=start) markup+=7*1440;
-      return {...b,start,markup,rested:markup+480};
+      return {...b,type:"BLOCK",label:"BLOCK",start,markup,rested:markup+480};
     });
+    const fams=(state.familiarizationTrips||[]).filter(f=>f.employee===name).map(f=>{
+      const job=routeJobFor(f.route);
+      const start=DAY_INDEX[f.day]*1440+parseTime(job.onDuty);
+      const returnStart=returnTripStartAbs(f.day,job);
+      const returnEnd=returnTripEndAbs(f.day,job);
+      const rest=requiredRestMinutes(returnStart,returnEnd);
+      return {...f,type:"FAM",label:`FAMILIARIZATION ${f.route}`,start,markup:returnEnd,rested:returnEnd+rest,returnStart,returnEnd,job};
+    });
+    return [...blocks,...fams];
   }
 
   function blockRestedTimeAbs(name,abs){
@@ -372,7 +388,7 @@ function App(){
       }
 
       // Unavailable reasons live here, not in board order.
-      if(blockRested!==null){ unavailableReasons.push(`${e.name} — BLOCK; available ${fmtAbs(blockRested)}`); continue; }
+      if(blockRested!==null){ unavailableReasons.push(`${e.name} — TRAINING/FAM; available ${fmtAbs(blockRested)}`); continue; }
       if(isExtraVacation(e.name,day)){ unavailableReasons.push(`${e.name} — VAC; marks up ${NEXT_DAY[day]} 00:01`); continue; }
       if(e.reliefDay===day && !holdHasEnded(e,current)){ unavailableReasons.push(`${e.name} — RELIEF; normal markup ${NEXT_DAY[day]} ${e.markupTime}`); continue; }
 
@@ -498,12 +514,12 @@ function App(){
       const idx=board.findIndex(e=>e.name===employee.name);
       if(isHoldActive(employee,start)){ const r=`${employee.name}: N/A holding down ${employee.holdDownRegular}${Number.isFinite(employee.holdReturnAbs)?`; marks up ${fmtAbs(employee.holdReturnAbs)}`:""}`; lines.push(`  skip ${r}`); skipReasons.push(r); continue; }
       const blockRested=blockRestedTimeAbs(employee.name,start);
-      if(blockRested!==null){ const r=`${employee.name}: block training/rest until ${fmtAbs(blockRested)}`; lines.push(`  skip ${r}`); skipReasons.push(r); continue; }
+      if(blockRested!==null){ const r=`${employee.name}: training/familiarization rest until ${fmtAbs(blockRested)}`; lines.push(`  skip ${r}`); skipReasons.push(r); continue; }
       if(employee.reliefDay===day && !state.workRelief[employee.name]){ const r=`${employee.name}: job starts on relief day and Work Relief is not checked`; lines.push(`  skip ${r}`); skipReasons.push(r); continue; }
       if(isExtraVacation(employee.name,day)){ const r=`${employee.name}: vacation day`; lines.push(`  skip ${r}`); skipReasons.push(r); continue; }
       if(returnEnd>DAY_INDEX[next]*1440 && isExtraVacation(employee.name,next)){ const r=`${employee.name}: trip works into ${next}, but ${employee.name} has vacation`; lines.push(`  skip ${r}`); skipReasons.push(r); continue; }
       const blockStartHit=blockStartConflict(employee.name,returnEnd);
-      if(blockStartHit){ const r=`${employee.name}: would not have 8h rest before block starts ${fmtAbs(blockStartHit.start)}`; lines.push(`  skip ${r}`); skipReasons.push(r); continue; }
+      if(blockStartHit){ const r=`${employee.name}: would not have 8h rest before training/familiarization starts ${fmtAbs(blockStartHit.start)}`; lines.push(`  skip ${r}`); skipReasons.push(r); continue; }
       if(start<(availability[employee.name]||0)){ const r=`${employee.name}: not available until ${fmtAbs(availability[employee.name])}`; lines.push(`  skip ${r}`); skipReasons.push(r); continue; }
 
       const [called]=board.splice(idx,1);
@@ -546,6 +562,12 @@ function App(){
     lines.push("","Block training:");
     if(state.blockTraining.length) state.blockTraining.forEach(b=>lines.push(`- ${b.employee}: ${b.startDay} ${b.startTime||"08:00"} through ${b.endDay}; markup ${b.markupDay} ${b.markupTime}${b.notes?` (${b.notes})`:""}`)); else lines.push("- None");
 
+    lines.push("","Familiarization trips:");
+    if((state.familiarizationTrips||[]).length) state.familiarizationTrips.forEach(f=>{
+      const job=routeJobFor(f.route);
+      lines.push(`- ${f.employee}: ${f.day} ${f.route} familiarization | ON ${job.onDuty} AWAY OFF ${job.offDuty} RETURN ${job.returnTieUp}${f.notes?` — ${f.notes}`:""}`);
+    }); else lines.push("- None");
+
     lines.push("","Extra jobs / DHE:");
     if(state.pinups.length) state.pinups.forEach(p=>{
       if(p.type==="DHE"){
@@ -569,6 +591,9 @@ function App(){
 
   function buildSimulation(actualOverrides={}, adjusted=false){
     const lines=[], employeeSummary={}, dailySummary=Object.fromEntries(DAYS.map(d=>[d,[]])), availability={}, workedJobs=[];
+    for(const f of (state.familiarizationTrips||[])){
+      employeeSummary[f.employee]=[...(employeeSummary[f.employee]||[]),`${f.day.slice(0,3)} FAMILIARIZATION ${f.route}`];
+    }
     const statusByEmployee={};
     const canceledLog=Object.fromEntries(DAYS.map(d=>[d,[]]));
     const board=state.boardOrder.filter(n=>n!=="N/A").map(name=>{
@@ -634,6 +659,41 @@ function App(){
               reason:`Block Training — available after 8h rest ${fmtAbs(rested)}${b.notes?` — ${b.notes}`:""}`,
               holdDown:"None"
             });
+          }
+        }
+      }
+    }
+
+
+
+    for(const f of (state.familiarizationTrips||[])){
+      const famJob=routeJobFor(f.route);
+      const famStart=DAY_INDEX[f.day]*1440+parseTime(famJob.onDuty);
+      const famReturnStart=returnTripStartAbs(f.day,famJob);
+      const famReturnEnd=returnTripEndAbs(f.day,famJob);
+      const famRested=famReturnEnd+requiredRestMinutes(famReturnStart,famReturnEnd);
+      const isRegular=uniqueRegulars().includes(f.employee);
+
+      if(isRegular){
+        for(const day of DAYS){
+          for(const job of jobsForRegularOnDay(f.employee,day)){
+            const jobStart=jobStartEndAbs(day,job).start;
+            const directWorkDay=day===f.day && job.works.includes(day);
+            const restConflict=jobStart>=famStart && jobStart<famRested;
+            if(directWorkDay || restConflict){
+              const exists=vacanciesByDay[day].some(v=>v.regular===f.employee && v.job.pool===job.pool && v.job.turn===job.turn);
+              if(!exists){
+                const cancel=cancellationFor(day,job,f.employee,state.canceledTrains);
+                if(cancel){ canceledLog[day].push(`CANCELED ${turnName(job)} for ${f.employee}${cancel.notes?` — ${cancel.notes}`:""}`); continue; }
+                vacanciesByDay[day].push({
+                  day,
+                  regular:f.employee,
+                  job,
+                  reason:`Familiarization ${f.route} — ${directWorkDay?"employee on fam trip during own assignment":"rest conflict after fam trip"}; available ${fmtAbs(famRested)}${f.notes?` — ${f.notes}`:""}`,
+                  holdDown:"None"
+                });
+              }
+            }
           }
         }
       }
@@ -750,7 +810,7 @@ function App(){
             const text=`${v.holdDown} works ${v.job.isDhe?`DHE to ${v.job.dheTo} / return ${v.job.pool} ${v.job.returnTrain}`:`${turnName(v.job)} turn`} holding down ${v.regular} | OUTBOUND/DHE ON ${fmtAbs(start)}${actualAwayAbs?` AWAY OFF ${fmtAbs(actualAwayAbs)}`:""} RETURN TIE-UP ${fmtAbs(ret)}${awayWarn}${holdBlockConflict?` | BLOCK REST CONFLICT: block starts ${fmtAbs(holdBlockConflict.start)}`:""}`;
             lines.push(`- ${text}`);
             if(awayWarn) lines.push(`  WARNING: ${v.holdDown} would not have 8h rest before return on-duty ${fmtAbs(returnStart)}.`);
-            if(holdBlockConflict) lines.push(`  WARNING: ${v.holdDown} would not have 8h rest before block starts ${fmtAbs(holdBlockConflict.start)}.`);
+            if(holdBlockConflict) lines.push(`  WARNING: ${v.holdDown} would not have 8h rest before training/familiarization starts ${fmtAbs(holdBlockConflict.start)}.`);
             dailySummary[day].push(text);
             employeeSummary[v.holdDown]=[...(employeeSummary[v.holdDown]||[]),`${day.slice(0,3)} ${turnName(v.job)}`];
             statusByEmployee[v.holdDown]={kind:"WORKING", until:ret, label:`HOLD-DOWN / WORKING ${turnName(v.job)} for ${v.regular}`};
@@ -1053,6 +1113,13 @@ function App(){
     try{parseTime(startTime);parseTime(markupTime);}catch{alert("Bad block start or markup time.");return;}
     update({blockTraining:[...state.blockTraining,{employee,startDay,startTime,endDay,markupDay,markupTime,notes}]});
   }
+  function addFamiliarizationTrip(){
+    const employee=document.getElementById("famEmployee").value;
+    const day=document.getElementById("famDay").value;
+    const route=document.getElementById("famRoute").value;
+    const notes=document.getElementById("famNotes").value||"";
+    update({familiarizationTrips:[...(state.familiarizationTrips||[]),{employee,day,route,notes}]});
+  }
   function addDoubleOut(){
     const employee=document.getElementById("doubleEmployee").value;
     const day=document.getElementById("doubleDay").value;
@@ -1209,18 +1276,46 @@ function App(){
 
         </CollapseSection>
 
-<CollapseSection id="block" title="Block Training" count={state.blockTraining.length}><small>Uses 8h rest before block start and 8h rest after block markup.</small>
-          <label>Employee</label><select id="blockEmployee">{people.map(x=><option key={x}>{x}</option>)}</select>
-          <label>Start day</label><select id="blockStartDay">{DAYS.map(d=><option key={d}>{d}</option>)}</select>
-          <label>Start time</label><input id="blockStartTime" defaultValue="08:00"/>
-          <label>End day</label><select id="blockEndDay">{DAYS.map(d=><option key={d}>{d}</option>)}</select>
-          <label>Markup day</label><select id="blockMarkupDay">{DAYS.map(d=><option key={d}>{d}</option>)}</select>
-          <label>Markup time</label><input id="blockMarkupTime" defaultValue="16:00"/>
-          <label>Location / notes</label><input id="blockNotes" placeholder="Seattle, PDX, annual block, etc."/>
-          <button onClick={addBlockTraining}>Add Block Training</button>
-          <List items={state.blockTraining.map(b=>`${b.employee}: ${b.startDay} ${b.startTime||"08:00"}-${b.endDay}, markup ${b.markupDay} ${b.markupTime}${b.notes?` (${b.notes})`:""}`)} onRemove={idx=>update({blockTraining:state.blockTraining.filter((_,i)=>i!==idx)})}/>
-        
+<CollapseSection id="block" title="Block Training / Familiarization" count={state.blockTraining.length+(state.familiarizationTrips||[]).length}>
+          <label>Training type</label>
+          <select value={trainingType} onChange={e=>setTrainingType(e.target.value)}>
+            <option value="BLOCK">Block training</option>
+            <option value="FAM">Familiarization trip</option>
+          </select>
 
+          {trainingType==="BLOCK" ? <>
+            <small>Uses 8h rest before block start and 8h rest after block markup.</small>
+            <label>Employee</label><select id="blockEmployee">{people.map(x=><option key={x}>{x}</option>)}</select>
+            <label>Start day</label><select id="blockStartDay">{DAYS.map(d=><option key={d}>{d}</option>)}</select>
+            <label>Start time</label><input id="blockStartTime" defaultValue="08:00"/>
+            <label>End day</label><select id="blockEndDay">{DAYS.map(d=><option key={d}>{d}</option>)}</select>
+            <label>Markup day</label><select id="blockMarkupDay">{DAYS.map(d=><option key={d}>{d}</option>)}</select>
+            <label>Markup time</label><input id="blockMarkupTime" defaultValue="16:00"/>
+            <label>Location / notes</label><input id="blockNotes" placeholder="Seattle, PDX, annual block, etc."/>
+            <button onClick={addBlockTraining}>Add Block Training</button>
+          </> : <>
+            <small>Familiarization rides with the regular crew over and back. It uses the selected route's normal on-duty, away off-duty, return on-duty, and tie-up times. Rest rules still apply.</small>
+            <label>Employee</label><select id="famEmployee">{people.map(x=><option key={x}>{x}</option>)}</select>
+            <label>Day</label><select id="famDay">{DAYS.map(d=><option key={d}>{d}</option>)}</select>
+            <label>Route / turn</label><select id="famRoute">{["PSC","WEN","WFH"].map(x=><option key={x}>{x}</option>)}</select>
+            <label>Notes</label><input id="famNotes" placeholder="route qualification, annual familiarization, etc."/>
+            <button onClick={addFamiliarizationTrip}>Add Familiarization</button>
+          </>}
+
+          <List items={[
+            ...state.blockTraining.map(b=>`BLOCK: ${b.employee}: ${b.startDay} ${b.startTime||"08:00"}-${b.endDay}, markup ${b.markupDay} ${b.markupTime}${b.notes?` (${b.notes})`:""}`),
+            ...(state.familiarizationTrips||[]).map(f=>{
+              const job=routeJobFor(f.route);
+              return `FAM: ${f.employee}: ${f.day} ${f.route} ON ${job.onDuty} AWAY OFF ${job.offDuty} RETURN ${job.returnTieUp}${f.notes?` (${f.notes})`:""}`;
+            })
+          ]} onRemove={idx=>{
+            if(idx<state.blockTraining.length){
+              update({blockTraining:state.blockTraining.filter((_,i)=>i!==idx)});
+            }else{
+              const famIdx=idx-state.blockTraining.length;
+              update({familiarizationTrips:(state.familiarizationTrips||[]).filter((_,i)=>i!==famIdx)});
+            }
+          }}/>
         </CollapseSection>
 
 <CollapseSection id="doubleOut" title="Manual Double-Out / Rest Override" count={state.doubleOuts.length}>

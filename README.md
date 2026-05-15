@@ -372,3 +372,17 @@ Explicit DHE type selector:
 - Return replacement always creates a separate extra-board DHE job and does not rewrite the original employee's job.
 - Cover open vacancy keeps the older behavior: it modifies a matching open vacancy when one exists.
 - This fixes the case where Dave works the outbound, is not rested for the return, rides home, and another extra-board employee works the return.
+
+
+## v50 note
+
+Block Training / Familiarization:
+- Renamed Block Training to Block Training / Familiarization.
+- Added a Training type dropdown: Block training or Familiarization trip.
+- Block training keeps the prior fields and logic.
+- Familiarization can be assigned to regulars or extra-board employees.
+- Familiarization uses the selected route's normal on-duty, away terminal off-duty, return on-duty, and return tie-up times.
+- Rest rules apply before and after familiarization.
+- If a regular does familiarization on a day their own job works, that regular job opens as a vacancy.
+- If familiarization creates a rest conflict with a later normal assignment, that assignment opens as a vacancy.
+- If an extra-board employee does familiarization, they are unavailable from board service until rested, and summary notes FAMILIARIZATION.
