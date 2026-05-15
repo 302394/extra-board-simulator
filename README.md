@@ -341,3 +341,34 @@ Fixed desktop columns:
 - Live Board Replay / Actual Tie-Ups stays below both columns.
 - Mobile layout still stacks normally.
 - Board logic is unchanged from v45.
+
+
+## v47 note
+
+DHE late-return replacement:
+- DHE now distinguishes normal DHE-for-vacancy from DHE due to late away-terminal arrival.
+- If an actual away-terminal edit makes the original employee not rested for the return, DHE no longer rewrites that employee's original job.
+- Instead, DHE creates a separate extra-board replacement job for the return trip.
+- The original employee is treated as riding home / not working the return and is not held out for return-trip rest.
+- Board logic otherwise remains based on v46.
+
+
+## v48 note
+
+Safe away-terminal time editing:
+- Editing Actual away terminal off-duty no longer blanks/crashes the page while typing.
+- Partial values such as "Saturday 15:" are ignored until valid.
+- Day names in actual time fields are now case-insensitive.
+- Recalculate Actual Board falls back to planned times if an edit is incomplete.
+- Board logic is unchanged from v47.
+
+
+## v49 note
+
+Explicit DHE type selector:
+- DHE now asks what kind of DHE it is:
+  - Return replacement / employee rides home
+  - Cover open vacancy / DHE out, work return
+- Return replacement always creates a separate extra-board DHE job and does not rewrite the original employee's job.
+- Cover open vacancy keeps the older behavior: it modifies a matching open vacancy when one exists.
+- This fixes the case where Dave works the outbound, is not rested for the return, rides home, and another extra-board employee works the return.

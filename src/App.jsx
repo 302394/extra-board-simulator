@@ -76,8 +76,9 @@ function fmtAbs(abs){
 }
 
 function parseAbs(text){
-  const [day,time]=String(text||"").trim().split(/\s+/);
-  if(!(day in DAY_INDEX)) throw new Error("Use format like Friday 01:07");
+  const [rawDay,time]=String(text||"").trim().split(/\s+/);
+  const day=DAYS.find(d=>d.toLowerCase()===String(rawDay||"").toLowerCase());
+  if(!day) throw new Error("Use format like Friday 01:07");
   return DAY_INDEX[day]*1440+parseTime(time);
 }
 
@@ -124,12 +125,20 @@ function editAwayValue(edit){ return edit && typeof edit==="object" ? edit.away 
 
 function awayRestWarning(job){
   if(!job.plannedAway || job.pool==="PIN-UP" || job.status==="UNFILLED") return "";
-  const awayAbs=parseActualAwayForJob(job,job.actualAway || job.plannedAway);
-  const returnStart=job.returnStartAbs;
-  if(!returnStart) return "";
-  const rested=awayAbs+480;
-  if(rested>returnStart){
-    return `WARNING: not rested for return trip. Away off-duty ${fmtAbs(awayAbs)}, return on-duty ${fmtAbs(returnStart)}, rested ${fmtAbs(rested)}. Create DHE/replacement if needed.`;
+  try{
+    const awayText=job.actualAway || job.plannedAway;
+    if(!awayText || String(awayText).trim().split(/\s+/).length < 2) return "";
+    const awayAbs=parseActualAwayForJob(job,awayText);
+    const returnStart=job.returnStartAbs;
+    if(!returnStart) return "";
+    const rested=awayAbs+480;
+    if(rested>returnStart){
+      return `WARNING: not rested for return trip. Away off-duty ${fmtAbs(awayAbs)}, return on-duty ${fmtAbs(returnStart)}, rested ${fmtAbs(rested)}. Create DHE/replacement if needed.`;
+    }
+  }catch{
+    // User may be mid-editing, like "Saturday 15:".
+    // Do not crash the page; just wait until the value is valid.
+    return "";
   }
   return "";
 }
@@ -198,6 +207,25 @@ function routeDefaults(pool){
 function dheFor(day,pool,pinups){
   const clean=String(pool||"").replace(/ Relief$/,"");
   return pinups.find(p=>p.type==="DHE" && p.day===day && p.route===clean);
+}
+function makeStandaloneDheVacancy(p, clean, d, reason){
+  const job={
+    regular:"DHE",
+    pool:clean,
+    turn:d.turn,
+    train:`DHE to ${clean} / return ${d.returnTrain}`,
+    outboundTrain:"DHE",
+    returnTrain:d.returnTrain,
+    works:[p.day],
+    onDuty:p.onDuty || d.awayTieUp,
+    offDuty:p.awayTieUp || d.awayTieUp,
+    returnOnDuty:d.returnOnDuty,
+    returnTieUp:d.returnTieUp,
+    isDhe:true,
+    dheTo:clean,
+    tieUpLocation:"SPK"
+  };
+  return {day:p.day, regular:"DHE", job, reason, holdDown:"None"};
 }
 function turnName(job){ return job.pool==="PIN-UP" ? job.train : `${job.pool} ${job.turn}`; }
 function actualTieUpLabel(employee,day,job,regular=null,holdDown=false){
@@ -427,7 +455,7 @@ function App(){
     if(moved.size||todayVac.size) lines.push("");
   }
 
-  function callNext(board,day,job,start,returnStart,returnEnd,availability,lines){
+  function callNext(board,day,job,start,returnStart,returnEnd,availability,lines,rideHomeOnly=false){
     const next=NEXT_DAY[day];
     const skipReasons=[];
     const turn=turnName(job);
@@ -456,9 +484,11 @@ function App(){
         }
 
         lines.push(`  DOUBLE-OUT / REST OVERRIDE: ${employee.name} forced onto ${turn}. ${conflict}`);
-        const rest=requiredRestMinutes(returnStart,returnEnd);
+        const rest=rideHomeOnly ? 0 : requiredRestMinutes(returnStart,returnEnd);
         availability[employee.name]=returnEnd+rest;
-        lines.push(`  ${employee.name} next available after forced double-out/rest (${rest/60}h rest) at ${fmtAbs(availability[employee.name])}`);
+        lines.push(rideHomeOnly
+          ? `  ${employee.name} rides home / not working return; available at tie-up ${fmtAbs(availability[employee.name])}`
+          : `  ${employee.name} next available after forced double-out/rest (${rest/60}h rest) at ${fmtAbs(availability[employee.name])}`);
         if(job.tieUpLocation && job.tieUpLocation!=="SPK") lines.push(`  WARNING: ${employee.name} ties up at ${job.tieUpLocation}, not SPK. Manual DHE/replacement may be needed before protecting another SPK job.`);
         return {called,double:true,skipReasons};
       }
@@ -479,7 +509,10 @@ function App(){
       const [called]=board.splice(idx,1);
       board.push(called);
 
-      if(returnEnd>DAY_INDEX[next]*1440 && called.reliefDay===next && !state.workRelief[called.name]){
+      if(rideHomeOnly){
+        availability[called.name]=returnEnd;
+        lines.push(`  ${called.name} rides home / not working return; available at tie-up ${fmtAbs(availability[called.name])}`);
+      }else if(returnEnd>DAY_INDEX[next]*1440 && called.reliefDay===next && !state.workRelief[called.name]){
         availability[called.name]=returnEnd+1440;
         lines.push(`  ${called.name} works into relief day ${next}; marks up 24h after return tie-up at ${fmtAbs(availability[called.name])}`);
       }else{
@@ -517,7 +550,8 @@ function App(){
     if(state.pinups.length) state.pinups.forEach(p=>{
       if(p.type==="DHE"){
         const d=routeDefaults(p.route);
-        lines.push(`- ${p.day}: DHE to ${p.route} / protect ${p.route} ${d.turn} | call ${p.onDuty} | away off ${p.awayTieUp || d.awayTieUp} | return tie-up ${d.returnTieUp}`);
+        const mode=p.dheMode==="COVER_VACANCY" ? "cover open vacancy" : "return replacement";
+        lines.push(`- ${p.day}: DHE ${mode} to ${p.route} / protect ${p.route} ${d.turn} | call ${p.onDuty} | away off ${p.awayTieUp || d.awayTieUp} | return tie-up ${d.returnTieUp}`);
       }else{
         lines.push(`- ${p.day}: ${p.label} ON ${p.onDuty} OFF ${p.offDuty}`);
       }
@@ -613,13 +647,25 @@ function App(){
       vacanciesByDay[p.day].push({day:p.day,regular:"PIN-UP",job,reason:"Pin-up / extra-board job",holdDown:"None"});
     }
 
-    // DHE entries modify a matching open regular vacancy when one exists.
-    // If no matching vacancy exists, create a standalone extra-board DHE job.
+    // DHE entries now use an explicit user-selected mode:
+    // RETURN_REPLACEMENT = create a separate DHE job; original employee rides home / not working.
+    // COVER_VACANCY = replace the outbound side of a matching open vacancy, otherwise create standalone DHE.
     for(const p of state.pinups.filter(x=>x.type==="DHE")){
       const clean=String(p.route||"PSC").replace(/ Relief$/,"");
       const d=routeDefaults(clean);
-      let matched=false;
+      const mode=p.dheMode || "RETURN_REPLACEMENT";
 
+      if(mode==="RETURN_REPLACEMENT"){
+        vacanciesByDay[p.day].push(makeStandaloneDheVacancy(
+          p,
+          clean,
+          d,
+          `DHE replacement to protect return ${clean} ${d.returnTrain}; original employee rides home / not working`
+        ));
+        continue;
+      }
+
+      let matched=false;
       for(const v of vacanciesByDay[p.day]){
         const vClean=String(v.job.pool||"").replace(/ Relief$/,"");
         if(vClean===clean && v.regular!=="PIN-UP"){
@@ -639,29 +685,12 @@ function App(){
       }
 
       if(!matched){
-        const job={
-          regular:"DHE",
-          pool:clean,
-          turn:d.turn,
-          train:`DHE to ${clean} / return ${d.returnTrain}`,
-          outboundTrain:"DHE",
-          returnTrain:d.returnTrain,
-          works:[p.day],
-          onDuty:p.onDuty || d.awayTieUp,
-          offDuty:p.awayTieUp || d.awayTieUp,
-          returnOnDuty:d.returnOnDuty,
-          returnTieUp:d.returnTieUp,
-          isDhe:true,
-          dheTo:clean,
-          tieUpLocation:"SPK"
-        };
-        vacanciesByDay[p.day].push({
-          day:p.day,
-          regular:"DHE",
-          job,
-          reason:`DHE to ${clean} to protect return ${clean} ${d.returnTrain}`,
-          holdDown:"None"
-        });
+        vacanciesByDay[p.day].push(makeStandaloneDheVacancy(
+          p,
+          clean,
+          d,
+          `DHE to ${clean} to protect return ${clean} ${d.returnTrain}`
+        ));
       }
     }
 
@@ -741,7 +770,8 @@ function App(){
             continue;
           }
 
-          const callResult=callNext(board,day,v.job,start,returnStart,ret,availability,lines);
+          const rideHomeOnly=!!awayWarn && !v.job.isDhe;
+          const callResult=callNext(board,day,v.job,start,returnStart,ret,availability,lines,rideHomeOnly);
           const called=callResult.called;
           const isDouble=callResult.double;
           let text;
@@ -795,9 +825,11 @@ function App(){
               ? `${called.name}${isDouble?" DOUBLE-OUT / REST OVERRIDE":""} works DHE to ${v.job.dheTo} / return ${v.job.pool} ${v.job.returnTrain}${v.regular && v.regular!=="DHE" ? ` for ${v.regular}` : ""} | DHE CALL ${fmtAbs(start)} AWAY OFF ${fmtAbs(actualAwayAbs)} RETURN TIE-UP ${fmtAbs(ret)}${awayWarn}`
               : manual
                 ? `${called.name}${isDouble?" DOUBLE-OUT / REST OVERRIDE":""} works ${manual}: ${turnName(v.job)} | ON/DHE ${fmtAbs(start)}${actualAwayAbs?` AWAY OFF ${fmtAbs(actualAwayAbs)}`:""} TIE-UP ${fmtAbs(ret)}${v.job.tieUpLocation?` at ${v.job.tieUpLocation}`:""}${awayWarn}`
-                : `${called.name}${isDouble?" DOUBLE-OUT / REST OVERRIDE":""} works ${turnName(v.job)} turn for ${v.regular} | OUTBOUND ON ${fmtAbs(start)} AWAY OFF ${fmtAbs(actualAwayAbs)} RETURN TIE-UP ${fmtAbs(ret)}${awayWarn}`;
+                : rideHomeOnly
+                  ? `${called.name}${isDouble?" DOUBLE-OUT / REST OVERRIDE":""} works outbound ${turnName(v.job)} for ${v.regular} | OUTBOUND ON ${fmtAbs(start)} AWAY OFF ${fmtAbs(actualAwayAbs)} | RIDES RETURN / NOT WORKING | TIE-UP ${fmtAbs(ret)}${awayWarn}`
+                  : `${called.name}${isDouble?" DOUBLE-OUT / REST OVERRIDE":""} works ${turnName(v.job)} turn for ${v.regular} | OUTBOUND ON ${fmtAbs(start)} AWAY OFF ${fmtAbs(actualAwayAbs)} RETURN TIE-UP ${fmtAbs(ret)}${awayWarn}`;
             employeeSummary[called.name]=[...(employeeSummary[called.name]||[]),`${day.slice(0,3)} ${v.job.isDhe?`DHE ${v.job.dheTo} / return ${v.job.returnTrain}`:manual?manual+" "+turnName(v.job):turnName(v.job)}`];
-            statusByEmployee[called.name]={kind:"WORKING", until:ret, label:`${isDouble?"DOUBLE-OUT / ":""}${v.job.isDhe?`WORKING DHE to ${v.job.dheTo} / return ${v.job.returnTrain}`:manual?`WORKING ${manual} ${turnName(v.job)}`:`WORKING ${turnName(v.job)} for ${v.regular}`}`};
+            statusByEmployee[called.name]={kind:"WORKING", until:ret, label:`${isDouble?"DOUBLE-OUT / ":""}${rideHomeOnly?`RIDING RETURN / NOT WORKING ${turnName(v.job)} for ${v.regular}`:v.job.isDhe?`WORKING DHE to ${v.job.dheTo} / return ${v.job.returnTrain}`:manual?`WORKING ${manual} ${turnName(v.job)}`:`WORKING ${turnName(v.job)} for ${v.regular}`}`};
             workedJobs.push({
               id,
               employee:called.name, day, pool:v.job.pool, train:v.job.turn,
@@ -814,7 +846,7 @@ function App(){
           }
 
           lines.push(`- ${text}`);
-          if(awayWarn) lines.push(`  WARNING: ${called?.name || "employee"} would not have 8h rest before return on-duty ${fmtAbs(returnStart)}.`);
+          if(awayWarn) lines.push(`  WARNING: ${called?.name || "employee"} would not have 8h rest before return on-duty ${fmtAbs(returnStart)}; treat return as ride-home/not working and create DHE replacement.`);
           dailySummary[day].push(text);
         }
       }
@@ -871,9 +903,13 @@ function App(){
     try{
       const overrides={};
       for(const j of actualJobs){
+        let returnAbs=j.plannedReturnAbs;
+        let awayAbs=j.plannedAwayAbs || null;
+        try{ returnAbs=parseActualReturnForJob(j,j.actualReturn || j.plannedReturn); }catch{}
+        try{ awayAbs=j.plannedAway ? parseActualAwayForJob(j,j.actualAway || j.plannedAway) : null; }catch{}
         overrides[j.id]={
-          return:parseActualReturnForJob(j,j.actualReturn),
-          away:j.plannedAway ? parseActualAwayForJob(j,j.actualAway || j.plannedAway) : null
+          return:returnAbs,
+          away:awayAbs
         };
       }
 
@@ -944,11 +980,12 @@ function App(){
     const onDuty=document.getElementById("pinupOn").value||"23:30";
     const offDuty=document.getElementById("pinupOff").value||"03:30";
     const route=document.getElementById("pinupRoute")?.value||"PSC";
+    const dheMode=document.getElementById("pinupDheMode")?.value||"RETURN_REPLACEMENT";
     const d=routeDefaults(route);
     const returnTieUp=d.returnTieUp;
     try{parseTime(onDuty);parseTime(offDuty);parseTime(returnTieUp);}catch{alert("Bad extra job/DHE time. Use 08:00, 2030, 22:15, etc.");return;}
     if(type==="DHE"){
-      update({pinups:[...state.pinups,{type:"DHE",day,route,label,onDuty,awayTieUp:offDuty,returnTieUp}]});
+      update({pinups:[...state.pinups,{type:"DHE",day,route,label,onDuty,awayTieUp:offDuty,returnTieUp,dheMode}]});
     }else{
       update({pinups:[...state.pinups,{type:"PINUP",day,label,onDuty,offDuty}]});
     }
@@ -1126,18 +1163,23 @@ function App(){
             <label>Off duty</label><input id="pinupOff" defaultValue="03:30"/>
             <small>If off time is earlier than on time, it ties up next day.</small>
           </> : <>
+            <label>DHE type</label><select id="pinupDheMode" defaultValue="RETURN_REPLACEMENT">
+              <option value="RETURN_REPLACEMENT">Return replacement / employee rides home</option>
+              <option value="COVER_VACANCY">Cover open vacancy / DHE out, work return</option>
+            </select>
             <label>DHE route / terminal</label><select id="pinupRoute">{["PSC","WEN","WFH"].map(x=><option key={x}>{x}</option>)}</select>
             <label>DHE note</label><input id="pinupLabel" defaultValue="DHE"/>
             <label>DHE call time</label><input id="pinupOn" defaultValue="06:44"/>
             <label>Away terminal off-duty</label><input id="pinupOff" defaultValue="06:44"/>
-            <small>DHE creates a board job for that day/route. If a matching vacancy already exists, it replaces the outbound; otherwise it creates a standalone DHE job. Return tie-up uses the normal return train.</small>
+            <small>Return replacement creates a separate board job and the original employee rides home. Cover open vacancy replaces the outbound side of an open vacancy.</small>
           </>}
 
           <button onClick={addPinup}>{extraJobType==="DHE" ? "Add DHE" : "Add Pin-Up / Extra Job"}</button>
           <List items={state.pinups.map(p=>{
             if(p.type==="DHE"){
               const d=routeDefaults(p.route);
-              return `${p.day} → DHE to ${p.route} / return ${d.returnTrain} CALL ${p.onDuty} AWAY OFF ${p.awayTieUp || d.awayTieUp} RETURN ${d.returnTieUp}`;
+              const mode=p.dheMode==="COVER_VACANCY" ? "cover vacancy" : "return replacement";
+              return `${p.day} → DHE ${mode} to ${p.route} / return ${d.returnTrain} CALL ${p.onDuty} AWAY OFF ${p.awayTieUp || d.awayTieUp} RETURN ${d.returnTieUp}`;
             }
             return `${p.day} → ${p.label} ON ${p.onDuty} OFF ${p.offDuty}`;
           })} onRemove={idx=>update({pinups:state.pinups.filter((_,i)=>i!==idx)})}/>
